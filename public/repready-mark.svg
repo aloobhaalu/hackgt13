@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="240 225 800 800" fill="none">
+  <title>RepReady</title>
+  <desc>A mint athlete lifting a dumbbell, forming an R with cyan movement accents.</desc>
+  <defs>
+    <linearGradient id="mint" x1="360" y1="280" x2="925" y2="990" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#aafb88"/>
+      <stop offset="1" stop-color="#bcf6ac"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="490" y1="940" x2="930" y2="565" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#48dce8"/>
+      <stop offset="1" stop-color="#79ffff"/>
+    </linearGradient>
+  </defs>
+  <!-- A dark contour keeps the mark legible on light and dark surfaces. -->
+  <path d="M665 662 312 1007h65c30 0 48-10 73-34l297-218 54-53Z" fill="#142025"/>
+  <g fill="url(#mint)" stroke="#142025" stroke-width="42" stroke-linejoin="round" paint-order="stroke fill">
+    <path d="m316 275 454 1c125 0 200 94 201 202 0 40-19 49-54 49h-81c0-15-4-30-10-42l74 4c24 1 32-5 32-26 0-90-74-161-162-161l-404-2c-21 0-37-8-50-25Z"/>
+    <circle cx="824" cy="395" r="48"/>
+    <path d="m435 588 80-104c19-25 41-38 73-38h169c45 0 73 45 49 91-12 29-55 73-97 106 35 14 86 35 123 65 28 20 36 33 18 54l-72 62 125 129c17 18 44 24 77 32h-96c-20 0-33-5-46-20L733 847c-8-10-5-23 2-31l82-77c-34-22-85-35-131-44-36-7-41-25-21-54l70-92c27-36 11-69-24-69H587c-16 0-27 5-38 17l-87 91Z"/>
+    <path d="M354 609h185v21H354Z"/>
+    <rect x="318" y="553" width="38" height="132" rx="12"/>
+    <rect x="521" y="554" width="37" height="131" rx="12"/>
+    <rect x="283" y="586" width="21" height="69" rx="8"/>
+    <rect x="573" y="586" width="23" height="69" rx="8"/>
+  </g>
+  <g fill="url(#cyan)">
+    <path d="m422 963 229-242c8-9 12-12 23-9l19 4Z"/>
+    <path d="M826 564h27c3 0 5 1 7 3l27 27c2 2 2 5 0 7l-48 48c-2 2-4 3-7 3h-36c-4 0-5-2-2-5l57-50-28-28c-3-3-2-5 3-5Z"/>
+    <path d="M881 560h26c3 0 5 1 7 3l28 28c3 3 3 6 0 9l-48 49c-2 2-4 3-7 3h-34l57-56-32-31c-3-3-2-5 3-5Z"/>
+  </g>
+</svg>

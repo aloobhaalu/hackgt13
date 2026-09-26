@@ -1,4 +1,4 @@
-import { FEEDBACK } from '../config';
+import { FEEDBACK, EXERCISES } from '../config';
 import { alignmentText, holdTime } from './scoreDisplay';
 import { ScoreWindow } from './scoreWindow';
 import { emptyAssessment } from './engine';
@@ -47,7 +47,7 @@ for (const world of [false, true]) test(`calibrate, descend, hold, and rise usin
     reps = a.reps;
   }
   assert.ok(scored > 20); assert.equal(reps, 1);
-  for (const state of ['CALIBRATING_STANDING', 'DESCENDING', 'HOLDING', 'ASCENDING', 'EXIT']) assert.ok(states.has(state), [...states].join(','));
+  for (const state of ['CALIBRATING_STANDING', 'DESCENDING', 'HOLDING', 'ASCENDING']) assert.ok(states.has(state), [...states].join(','));
 });
 
 test('shallow and leaning holds show simultaneous body-relative targets', () => {
@@ -130,7 +130,7 @@ test('a continuous squat scores and counts after returning upright without requi
     const f = ms < 2600 ? 0 : ms < 4200 ? ease((ms - 2600) / 1600) : ms < 5800 ? 1 - ease((ms - 4200) / 1600) : 0;
     const a = engine.update(squatPose(f), ms).assessment;
     if(ms<2600)assert.equal(a.score,null);
-    if(ms<5800)assert.equal(a.reps,0);
+    if(a.reps>0){assert.ok(a.debug.squat!.hipDrop!<=EXERCISES.squat.returnHipDrop);assert.ok(a.debug.squat!.kneeAngle!>=a.debug.squat!.baseline!.knee-EXERCISES.squat.returnKneeTolerance);}
     scored ||= a.score!==null; reps=a.reps;
   }
   assert.ok(scored);assert.equal(reps,1);
@@ -362,7 +362,7 @@ test('squat live phases precede complete quality reps; poor and interrupted cycl
       last=engine.update(p,ms).assessment;
       if(ms>2100&&ms<2500){assert.equal(alignmentText(last),'Ready');ready=true;}
       if(last.score!==null)phases.add(last.debug.state!);
-      if(ms<9500)assert.equal(last.reps,0);
+      if(last.reps>0){assert.ok(last.debug.squat!.hipDrop!<=EXERCISES.squat.returnHipDrop);assert.equal(mode,'good');}
       if(mode==='interrupted'&&ms>3700&&ms<3900)assert.equal(alignmentText(last),'\u2014');
     }
     assert.ok(ready);
@@ -383,4 +383,69 @@ test('display preserves low measured values including zero and score windows are
   assert.equal(alignmentText({...base,scoreStatus:'ready'}),'Ready');
   assert.equal(alignmentText(base),'\u2014');
   assert.equal(holdTime(61234),'1:01');
+});
+
+
+test('two controlled squats with natural reversals and brief standing pauses retain calibration',()=>{
+  for(const world of [false,true]) {
+    const e=new CoachEngine('squat');let last=e.interrupt();let held=false;
+    for(let t=0;t<8600;t+=65){const cycle=(t-2600)%3000;const flex=t<2600?0:cycle<1300?ease(cycle/1300):cycle<2600?1-ease((cycle-1300)/1300):0;
+      const p=squatPose(flex);last=e.update(p,t,1,false,world?worldPose(p):undefined).assessment;held ||= last.debug.state==='HOLDING';}
+    assert.equal(held,false);assert.equal(last.debug.completedCycles,2);assert.equal(last.reps,2);assert.equal(last.debug.squatCycle?.calibrated,true);
+  }
+});
+
+test('partial, static and tracking-lost squat cycles have explicit local block reasons',()=>{
+  for(const mode of ['partial','static','lost'] as const){const e=new CoachEngine('squat');let last=e.interrupt(),lossReported=false;
+    for(let t=0;t<7500;t+=65){const cycle=t-2600,depth=mode==='partial'?.35:1;
+      const flex=mode==='static'?.7:t<2600?0:cycle<1400?ease(cycle/1400)*depth:cycle<2800?(1-ease((cycle-1400)/1400))*depth:0;
+      const p=squatPose(flex);if(mode==='lost'&&t>3700&&t<3950)p[27].visibility=p[28].visibility=.1;
+      last=e.update(p,t).assessment;lossReported ||= last.debug.squatCycle?.lastFailure==='Tracking/view confidence lost';}
+    assert.equal(last.reps,0);assert.equal(last.debug.completedCycles??0,0);
+    if(mode==='partial')assert.equal(last.debug.squatCycle?.lastFailure,'Descent too small');
+    if(mode==='static')assert.equal(last.debug.squatCycle?.blockReason,'No standing calibration');
+    if(mode==='lost')assert.ok(lossReported);
+  }
+});
+
+test('side torso correction uses personal baseline, confirms sustained lean and clears independently',()=>{
+  const e=new CoachEngine('squat');let corrected=false,cleared=false;
+  for(let t=0;t<7500;t+=65){const f=t<2600?0:Math.min(1,(t-2600)/1600),tilt=t<3100?15:t<5400?85:15;
+    const a=e.update(squatPose(f,tilt),t).assessment;
+    if(t>4000&&t<5200){const cue=a.corrections?.find(c=>c.id==='torso');assert.ok(cue);assert.equal(cue.kind,'rotation');corrected=true;}
+    if(t>7000){assert.ok(!a.corrections?.some(c=>c.id==='torso'));cleared=true;}
+    if(a.debug.squat?.baseline)assert.ok(Math.abs(a.debug.squat.baseline.tilt-15)<1);
+  }
+  assert.ok(corrected&&cleared);
+});
+
+
+test('45-degree side torso limit is absolute through descent, hold and ascent despite a tilted baseline',()=>{
+  for(const tilt of [44,45,45.5,50]) {
+    const e=new CoachEngine('squat');const checked=new Set<string>();
+    for(let t=0;t<10100;t+=65){const output=e.update(squatPose(movement(t),t<2600?15:tilt),t),a=output.assessment;
+      if(t<4000||a.score===null)continue;
+      checked.add(a.debug.state!);const cue=a.corrections?.find(c=>c.id==='torso');
+      assert.equal(!!cue,tilt>45,`tilt ${tilt}, state ${a.debug.state}`);
+      if(cue){assert.equal(cue.kind,'rotation');const hip=output.pose[cue.anchor];const targetTilt=Math.atan2(Math.abs(cue.target.x-hip.x),hip.y-cue.target.y)*180/Math.PI;assert.ok(targetTilt<45);}
+      assert.ok(a.debug.components.filter(c=>c.id==='torso').every(c=>c.limit===45));
+    }
+    for(const state of ['DESCENDING','HOLDING','ASCENDING'])assert.ok(checked.has(state));
+  }
+});
+
+test('standing setup also corrects sustained tilt just beyond 45 degrees',()=>{
+  for(const tilt of [45,45.5]) {const e=new CoachEngine('squat');let last=e.interrupt();
+    for(let t=0;t<2400;t+=65)last=e.update(squatPose(0,tilt),t).assessment;
+    assert.equal(!!last.corrections?.some(c=>c.id==='torso'),tilt>45);assert.equal(last.score,null);assert.equal(last.reps,0);
+  }
+});
+
+
+test('side squat counts with optional heels and toes hidden while required joints stay reliable',()=>{
+  const e=new CoachEngine('squat');let last=e.interrupt();
+  for(let t=0;t<10400;t+=65){const p=squatPose(movement(t));for(const i of [29,30,31,32])p[i].visibility=.1;
+    last=e.update(p,t).assessment;assert.ok(!last.corrections?.some(c=>c.id==='heel-lift'));
+  }
+  assert.equal(last.debug.completedCycles,1);assert.equal(last.reps,1);assert.equal(e.interrupt().debug.completedCycles,1);
 });

@@ -2,12 +2,15 @@ import { FEEDBACK } from '../config';
 
 /** Time-weighted, phase-balanced quality prevents a long pause masking poor movement. */
 export class RepQuality {
+  private recognizedPhases=new Set<string>();
   private phases = new Map<string, { total: number; duration: number; initial: number }>();
   private previous: { at: number; phase: string; score: number } | null = null;
   completedCycles = 0;
   lastScore: number | null = null;
-  reset() { this.phases.clear(); this.previous = null; }
+  reset() { this.recognizedPhases.clear();this.phases.clear(); this.previous = null; }
+  pause() { this.previous = null; }
   sample(score: number | null, phase: string, now: number) {
+    this.recognizedPhases.add(phase);
     if (score === null || !Number.isFinite(score)) return;
     const old = this.previous;
     if (old && now > old.at) {
@@ -22,8 +25,8 @@ export class RepQuality {
   complete(now: number, required: string[]) {
     if (this.previous) this.sample(this.previous.score, this.previous.phase, now);
     const values = [...this.phases.values()];
-    const recognized = required.every(phase => this.phases.has(phase));
-    this.lastScore = recognized && values.length ? values.reduce((s, p) => s + (p.duration > 0 ? p.total / p.duration : p.initial), 0) / values.length : null;
+    const recognized = required.every(phase => this.recognizedPhases.has(phase));
+    this.lastScore = recognized && required.every(phase=>this.phases.has(phase)) && values.length ? values.reduce((s, p) => s + (p.duration > 0 ? p.total / p.duration : p.initial), 0) / values.length : null;
     if (recognized) this.completedCycles++;
     const accepted = this.lastScore !== null && this.lastScore >= FEEDBACK.qualityRepThreshold;
     this.reset();

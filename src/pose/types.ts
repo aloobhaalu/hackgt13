@@ -1,15 +1,25 @@
 export type Point = { x: number; y: number; z?: number; visibility: number };
 export type Pose = Point[];
 export type Correction = {
-  id: string; label: string; joint: number; anchor: number; target: Point;
+  id: string; label: string; joint: number; anchor: number; target: Point; targetAnchor?: Point;
   severity: number; kind: 'translation' | 'rotation' | 'instability';
 };
 export type ScoreComponent = { id: string; value: number | null; limit: number; error: number; score: number | null };
+export type SquatCycleDebug = {
+  state:string; blockReason:string; lastFailure:string|null;
+  calibrated:boolean; bottomConfirmed:boolean; ascentConfirmationMs:number;
+};
+export type CurlCycleDebug = {
+  state:string; calibrated:boolean; validCycle:boolean; topConfirmed:boolean;
+  blockReason:string; lastFailure:string|null; returnConfirmationMs:number;
+};
 export type DebugData = {
-  exercise?: string; view?: string; state?: string; viewValid?: boolean;
+  exercise?: string; view?: string; state?: string; viewValid?: boolean; trackingGapMs?:number;
   coachingEnabled?: boolean; scoringEnabled?: boolean; scoreUpdatedAt?: number | null;
   completedCycles?: number; lastRepScore?: number | null;
-  squat?: SquatDebug;
+  curlCycle?:CurlCycleDebug;
+  curlPartial?: { count:number; severityTotal:number; maxSeverity:number };
+  squat?: SquatDebug; squatCycle?:SquatCycleDebug;
   landmarks: { index: number; name: string; visibility: number; inFrame: boolean; required: boolean }[];
   angles: Record<string, number>;
   rawAngles?: Record<string, number>;
@@ -21,6 +31,7 @@ export type DebugData = {
 };
 export type SquatState = 'FRAME_INVALID' | 'CALIBRATING_STANDING' | 'DESCENDING' | 'HOLDING' | 'ASCENDING' | 'EXIT';
 export type SquatDebug = {
+  cycle?:SquatCycleDebug;
   scoreUpdatedAt?: number | null; completedCycles?: number; lastRepScore?: number | null;
   coachingEnabled?: boolean;
   state: SquatState; source: 'world' | 'normalized' | null;

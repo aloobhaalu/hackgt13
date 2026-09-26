@@ -35,8 +35,14 @@ export type SquatResult = {
 export class SquatEvaluator {
   private displayScore = new ScoreWindow();
   private repQuality = new RepQuality();
+  private setupAttempt=false;
+  private lastFailure:string|null=null;
+  private ascentSince:number|null=null;
+  private peakHeight=Infinity;
+  private peakKnee=180;
+  private torsoSince:number|null=null;
+  private torsoActive=false;
   private bottomSince: number | null = null;
-  private setupIssueSince: number | null = null;
   private heels = new HeelLiftEvaluator();
   private state: SquatState = 'FRAME_INVALID';
   private reason = 'Required landmarks unavailable';
@@ -78,11 +84,18 @@ export class SquatEvaluator {
     return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
   }
   private clearQuality() {
-    this.setupIssueSince = null;
     this.score = null; this.rawScore = null; this.components = []; this.corrections = [];
     this.quality = null; this.evaluatedAt = null;
   }
+  pauseEvidence() {
+    this.directionSince=null;this.ascentSince=null;this.finishSince=null;
+    if(!this.held)this.bottomSince=null;
+    this.baselineSince=null;this.baselineFrames=[];this.holdDuration=0;this.holdWindow=[];
+    this.recent=[];this.heels.reset();this.repQuality.pause();this.displayScore.reset();this.clearQuality();
+  }
   invalidate(reason: string): SquatResult {
+    if(['DESCENDING','HOLDING','ASCENDING'].includes(this.state))this.lastFailure='Tracking/view confidence lost';
+    this.setupAttempt=false;this.ascentSince=null;this.torsoSince=null;this.torsoActive=false;
     this.heels.reset(); this.displayScore.reset(); this.repQuality.reset(); this.bottomSince=null;
     this.state = 'FRAME_INVALID'; this.reason = reason; this.reliableFrame = false;
     this.baseline = null; this.baselineSince = null; this.baselineFrames = [];
@@ -103,6 +116,8 @@ export class SquatEvaluator {
     this.reliableFrame = false; this.reason = reason; this.clearQuality(); return this.result();
   }
   private exit(reason: string) {
+    if(['DESCENDING','HOLDING','ASCENDING'].includes(this.state))this.lastFailure=reason;
+    this.setupAttempt=false;this.ascentSince=null;this.torsoSince=null;this.torsoActive=false;
     this.heels.reset(); this.displayScore.reset(); this.repQuality.reset(); this.bottomSince=null;
     this.state = 'EXIT'; this.reason = reason; this.baseline = null;
     this.baselineSince = null; this.baselineFrames = []; this.directionSince = null;
@@ -116,6 +131,7 @@ export class SquatEvaluator {
     const coaching = this.reliableFrame && (holding || this.state === 'DESCENDING' || setup);
     return {
       debug: {
+        cycle:{state:this.baseline&&this.state==='CALIBRATING_STANDING'?'CALIBRATED_STANDING':this.state,blockReason:this.state==='ASCENDING'?'Did not return to standing':this.state==='DESCENDING'?(this.held?'Ascent not detected':'No confirmed bottom/reversal'):this.state==='HOLDING'?'Ascent not detected':this.baseline?'Descent too small':'No standing calibration',lastFailure:this.lastFailure,calibrated:!!b,bottomConfirmed:this.held,ascentConfirmationMs:this.ascentSince!==null&&this.previousAt!==null?this.previousAt-this.ascentSince:0},
         coachingEnabled: coaching, scoreUpdatedAt:this.displayScore.updatedAt, completedCycles:this.repQuality.completedCycles,lastRepScore:this.repQuality.lastScore,
         state: this.state, source: this.source, kneeAngle: f?.knee ?? null, hipAngle: f?.hip ?? null,
         torsoTilt: f?.tilt ?? null, hipDrop: f && b ? (b.height - f.hipHeight) / b.leg : null,
@@ -234,45 +250,56 @@ export class SquatEvaluator {
     if (f.supportTravel > C.maxFootTravel || f.hipTravel > C.maxHipTravel || Math.abs(f.leg / b.leg - 1) > C.maxLegScaleChange) return this.exit('Foot travel or changing body geometry invalidates calibration');
     const ascending = f.hipVelocity < -C.directionHipSpeed && f.kneeVelocity > C.directionKneeSpeed;
     if (this.state === 'CALIBRATING_STANDING') {
+      if(drop>=C.minHipDrop/2&&bend>=C.minKneeBend)this.setupAttempt=true;
+      if(this.setupAttempt&&bend<=C.returnKneeTolerance&&drop<=C.returnHipDrop&&f.kneeVelocity>0){this.lastFailure='Descent too small';this.setupAttempt=false;}
       // Require a measured change from the observed standing baseline, rather
       // than simultaneous derivative thresholds that miss slow descents.
       const plausible = drop >= C.minHipDrop && bend >= C.minKneeBend && b.hip - f.hip >= C.minHipBend && !ascending;
       if (plausible) this.directionSince ??= now; else this.directionSince = null;
       if (this.directionSince !== null && now - this.directionSince >= C.directionHoldMs) {
-        this.state = 'DESCENDING'; this.startedAt = now; this.directionSince = null; this.held = false; this.holdWindow = [];
+        this.state = 'DESCENDING'; this.repQuality.reset();this.lastFailure=null;this.setupAttempt=false;this.peakHeight=f.hipHeight;this.peakKnee=f.knee;this.ascentSince=null;this.startedAt = now; this.directionSince = null; this.held = false; this.holdWindow = [];
       } else { this.reason = 'Calibrated; waiting for sustained hip descent and knee bend'; return this.setupResult(img, aspect, now); }
     }
+    this.peakHeight=Math.min(this.peakHeight,f.hipHeight);this.peakKnee=Math.min(this.peakKnee,f.knee);
+    const rising=(f.hipHeight-this.peakHeight)/b.leg>=C.ascentDrop && f.knee-this.peakKnee>=C.ascentKneeExtension && f.hipVelocity<0 && f.kneeVelocity>0;
+    if(rising)this.ascentSince??=now;else this.ascentSince=null;
+    const ascentConfirmed=this.ascentSince!==null && now-this.ascentSince>=C.ascentConfirmMs;
     const squatPosition = bend >= C.holdMinKneeBend && drop >= C.holdMinHipDrop;
     if (squatPosition && this.state==='DESCENDING') this.bottomSince??=now; else if(!this.held) this.bottomSince=null;
-    if(this.bottomSince!==null && now-this.bottomSince>=C.directionHoldMs) this.held=true;
-    if(this.state==='DESCENDING' && now-this.startedAt>C.maxSequenceMs) return this.exit('Squat sequence timed out');
+    if(this.bottomSince!==null && now-this.bottomSince>=C.bottomConfirmMs) this.held=true;
+    if(['DESCENDING','HOLDING','ASCENDING'].includes(this.state) && this.state!=='HOLDING' && now-this.startedAt>C.maxSequenceMs) return this.exit(this.state==='ASCENDING'?'Did not return to standing':this.held?'Ascent not detected':'No confirmed bottom/reversal');
     if (this.state === 'HOLDING') {
       const risingFromHold = ascending && this.holdOrigin && (f.hipHeight - this.holdOrigin.hipHeight) / b.leg >= C.ascentDrop && f.knee - this.holdOrigin.knee >= C.ascentKneeExtension;
       const movedFromHold = this.holdOrigin && (Math.abs(f.hipHeight - this.holdOrigin.hipHeight) / b.leg > C.holdExitHipRange || Math.abs(f.knee - this.holdOrigin.knee) > C.holdExitKneeRange);
       if (!squatPosition || risingFromHold || Math.abs(f.hipVelocity) > C.holdExitHipSpeed || Math.abs(f.kneeVelocity) > C.holdExitKneeSpeed || movedFromHold) {
-        this.clearQuality(); this.holdDuration = 0;
-        if (ascending || upright) { this.state = 'ASCENDING'; this.reason = 'Measured squat ascent'; }
+        if (ascentConfirmed) {this.clearQuality();this.holdDuration=0; this.state = 'ASCENDING';this.startedAt=now; this.reason = 'Measured squat ascent'; }
+        else if(rising){this.reason='Confirming squat ascent';return this.imageResult(aspect,img,b,now);}
         else return this.exit('Hold moved too far; return to standing to recalibrate');
       }
     }
-    if(this.state==='DESCENDING' && ascending) {
-      this.state='ASCENDING'; this.holdDuration=0;
+    if(this.state==='DESCENDING' && ascentConfirmed) {
+      this.state='ASCENDING';this.startedAt=now; this.holdDuration=0;
     }
     if (this.state === 'ASCENDING') {
-      if (stableStart) this.finishSince ??= now; else this.finishSince = null;
+      const returned=drop<=C.returnHipDrop && bend<=C.returnKneeTolerance;
+      if (returned) this.finishSince ??= now; else this.finishSince = null;
       if (this.finishSince !== null && now - this.finishSince >= C.finishHoldMs) {
-        if (this.held && this.repQuality.complete(now,['DESCENDING','ASCENDING'])) this.reps++;
-        this.finishSince = null; return this.exit('Returned to standing; recalibrate before another hold');
+        if(!this.held)this.lastFailure='No confirmed bottom/reversal';
+        else if(this.repQuality.complete(now,['DESCENDING','ASCENDING'])){this.reps++;this.lastFailure=null;}
+        else this.lastFailure=this.repQuality.lastScore===null?'Ascent not detected':'Form Alignment below quality threshold';
+        this.repQuality.reset();this.displayScore.reset();this.clearQuality();this.state='CALIBRATING_STANDING';
+        this.held=false;this.bottomSince=null;this.ascentSince=null;this.finishSince=null;this.directionSince=null;
+        this.reason=this.lastFailure??'Completed squat; calibrated for next descent';
+        return this.result();
       }
       this.reason = 'Measured squat ascent';
       this.corrections=[];
-      const error=Math.max(0,(f.tilt-C.maxLean)/C.torsoPenaltyRange);
+      const error=Math.max(0,(f.tilt-this.torsoLimit())/C.torsoPenaltyRange);
       if(error>C.holdIssueThreshold)this.corrections.push(this.torsoCorrection(img,error));
       return this.imageResult(aspect,img,b,now);
     }
     if (this.state === 'DESCENDING') {
       if (now - this.startedAt > C.maxSequenceMs) return this.exit('No stable squat hold established');
-      if (!squatPosition && ascending) { this.state = 'ASCENDING'; this.reason = 'Rising before hold confirmation'; this.holdDuration = 0; return this.result(); }
       // A time window of smoothed geometry tolerates small zero-crossings in
       // landmark velocity. One noisy velocity sample cannot erase a bottom hold.
       if (squatPosition) this.holdWindow.push({ at: now, frame: { ...f } }); else this.holdWindow = [];
@@ -288,7 +315,7 @@ export class SquatEvaluator {
       if (this.holdDuration < C.holdConfirmMs) {
         // Posture guidance must not depend on settling into a scoreable hold.
         // Calibration and coordinated descent have already established context.
-        const error = Math.max(0, (f.tilt - C.maxLean) / C.torsoPenaltyRange);
+        const error = Math.max(0, (f.tilt - this.torsoLimit()) / C.torsoPenaltyRange);
         this.corrections = error > C.holdIssueThreshold ? [this.torsoCorrection(img, error)] : [];
         return this.imageResult(aspect, img, b, now);
       }
@@ -304,14 +331,23 @@ export class SquatEvaluator {
 
   private setupResult(img: Pose, aspect: number, now: number) {
     const f=this.features!;
-    const error=Math.max(0,(f.tilt-C.maxLean)/C.torsoPenaltyRange);
-    if(error>C.holdIssueThreshold && f.knee>=C.startKneeMin && f.hip>=C.setupHipMin && f.tilt<=C.setupTorsoMax) this.setupIssueSince??=now;
-    else this.setupIssueSince=null;
-    this.corrections=this.setupIssueSince!==null && now-this.setupIssueSince>=FEEDBACK.correctionConfirmMs?[this.torsoCorrection(img,error)]:[];
+    this.corrections=[];
+    this.updateTorsoCorrection(img,now,f.knee>=C.startKneeMin && f.hip>=C.setupHipMin && f.tilt<=C.setupTorsoMax);
     return this.normalizedResult(aspect);
   }
 
+  private updateTorsoCorrection(img:Pose,now:number,enabled=true) {
+    const tilt=this.features!.tilt,error=Math.max(0,(tilt-C.maxLean)/C.torsoPenaltyRange);
+    // 45 degrees is an absolute tilt from vertical, never an extra allowance on top of calibration.
+    const accepted=this.torsoActive?tilt<=C.maxLean-C.torsoReleaseDegrees:tilt<=C.maxLean+1e-6;
+    if(!enabled||accepted){this.torsoSince=null;this.torsoActive=false;}
+    else {this.torsoSince??=now;if(now-this.torsoSince>=C.torsoConfirmMs)this.torsoActive=true;}
+    this.corrections=this.corrections.filter(c=>c.id!=='torso');
+    if(this.torsoActive)this.corrections.push(this.torsoCorrection(img,Math.max(error,FEEDBACK.issueRelease)));
+  }
+
   private imageResult(aspect: number, img: Pose, b: Baseline, now: number) {
+    this.updateTorsoCorrection(img,now);
     this.evaluateLive(b,now);
     const heel = this.heels.update(img, this.side!, b.imageLeg, now, false, false, true, aspect);
     if (heel) this.corrections.push(heel);
@@ -321,7 +357,7 @@ export class SquatEvaluator {
   private evaluateLive(b: Baseline, now: number) {
     const f=this.features!;
     const mean=(key:'knee'|'tilt'|'hipHeight')=>this.recent.reduce((sum,s)=>sum+s[key],0)/this.recent.length;
-    const torso=Math.max(0,(mean('tilt')-C.maxLean)/C.torsoPenaltyRange);
+    const torso=Math.max(0,(mean('tilt')-this.torsoLimit())/C.torsoPenaltyRange);
     let raw: number;
     if(this.state==='HOLDING') {
       const range=(key:'knee'|'hipHeight')=>Math.max(...this.recent.map(f=>f[key]))-Math.min(...this.recent.map(f=>f[key]));
@@ -332,7 +368,7 @@ export class SquatEvaluator {
       // A controlled descent/ascent is not an unstable hold or insufficient bottom depth.
       const control=Math.max(0,(Math.abs(f.hipVelocity)-C.maxHipSpeed*0.65)/(C.maxHipSpeed*0.35),(Math.abs(f.kneeVelocity)-C.maxKneeSpeed*0.65)/(C.maxKneeSpeed*0.35));
       this.components=[
-        {id:'torso',value:mean('tilt'),limit:C.maxLean,error:torso,score:100*(1-clamp(torso))},
+        {id:'torso',value:mean('tilt'),limit:this.torsoLimit(),error:torso,score:100*(1-clamp(torso))},
         {id:'control',value:control,limit:0,error:control,score:100*(1-clamp(control))},
       ];
       raw=(this.components[0].score!*C.holdWeights.torso+this.components[1].score!*C.holdWeights.stability)/(C.holdWeights.torso+C.holdWeights.stability);
@@ -355,9 +391,13 @@ export class SquatEvaluator {
     return result;
   }
 
+  private torsoLimit(){return C.maxLean;}
+
   private torsoCorrection(img: Pose, severity: number): Correction {
     const hip = 23 + this.side!, shoulder = 11 + this.side!;
-    const angle = Math.sign(img[shoulder].x - img[hip].x) * C.maxLean * C.torsoTargetRatio * Math.PI / 180;
+    const upright=Math.min(this.baseline?.tilt??0,C.maxLean-C.torsoReleaseDegrees);
+    const targetTilt=upright+(C.maxLean-upright)*C.torsoTargetRatio;
+    const angle = Math.sign(img[shoulder].x - img[hip].x) * targetTilt * Math.PI / 180;
     const size = length(img[hip], img[shoulder]);
     return { id: 'torso', label: '', joint: shoulder, anchor: hip, kind: 'rotation', severity,
       target: { ...img[shoulder], x: img[hip].x + Math.sin(angle) * size, y: img[hip].y - Math.cos(angle) * size } };
@@ -369,10 +409,10 @@ export class SquatEvaluator {
     const q = { knee: mean('knee'), hip: mean('hip'), tilt: mean('tilt'), drop: (b.height - mean('hipHeight')) / b.leg,
       stability: Math.max(0, (range('hipHeight') / b.leg - C.holdStableHipRange) / (C.holdMaxHipRange - C.holdStableHipRange), (range('knee') - C.holdStableKneeRange) / (C.holdMaxKneeRange - C.holdStableKneeRange)) };
     const depth = C.depthKneeWeight * clamp((q.knee - C.depthAngle) / C.depthPenaltyRange) + C.depthDropWeight * clamp((C.targetHipDrop - q.drop) / C.dropPenaltyRange);
-    const torso = Math.max(0, (q.tilt - C.maxLean) / C.torsoPenaltyRange);
+    const torso = Math.max(0, (q.tilt - this.torsoLimit()) / C.torsoPenaltyRange);
     const components: ScoreComponent[] = [
       { id: 'depth', value: q.knee, limit: C.depthAngle, error: depth, score: 100 * (1 - clamp(depth)) },
-      { id: 'torso', value: q.tilt, limit: C.maxLean, error: torso, score: 100 * (1 - clamp(torso)) },
+      { id: 'torso', value: q.tilt, limit: this.torsoLimit(), error: torso, score: 100 * (1 - clamp(torso)) },
       { id: 'stability', value: q.stability, limit: 0, error: q.stability, score: 100 * (1 - clamp(q.stability)) },
     ];
     const previous = this.quality;

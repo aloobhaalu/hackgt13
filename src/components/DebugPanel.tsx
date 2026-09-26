@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Assessment } from '../pose/types';
-import { EXERCISES, FRONT_SQUAT, VIEW, FEEDBACK } from '../config';
+import { EXERCISES, FRONT_SQUAT, VIEW, FEEDBACK, TRACKING } from '../config';
 import ValidationPanel from './ValidationPanel';
 
 export default function DebugPanel({ assessment: a, source, cameraStatus, demoStart, retry, exercise, view }: {
@@ -13,7 +13,10 @@ export default function DebugPanel({ assessment: a, source, cameraStatus, demoSt
     <div className="debug-title"><h2>Developer diagnostics</h2><span>D to hide · {source === 'camera' ? 'REAL CAMERA' : 'SYNTHETIC DEMO'}</span></div>
     <label>Quality Rep threshold <input type="number" min="0" max="100" step="1" value={threshold} onChange={event=>{const n=event.target.valueAsNumber;if(Number.isFinite(n)){FEEDBACK.qualityRepThreshold=Math.max(0,Math.min(100,n));setThreshold(FEEDBACK.qualityRepThreshold);}}}/></label>
     <dl className="debug-summary">
+      {exercise==='squat'&&<><dt>Squat cycle / block reason</dt><dd>{a.debug.squatCycle?.state??a.debug.squat?.state??'FRAME_INVALID'} / {a.debug.squatCycle?.blockReason??'Tracking/view confidence lost'}</dd><dt>Last failed squat cycle</dt><dd>{a.debug.squatCycle?.lastFailure??'None recorded'}</dd><dt>Squat cycle evidence</dt><dd><pre>{JSON.stringify(a.debug.squatCycle??a.debug.squat?.cycle??{},null,2)}</pre></dd></>}
+      {exercise==='curl'&&<><dt>Curl cycle / block reason</dt><dd>{a.debug.curlCycle?.state??'FRAME_INVALID'} / {a.debug.curlCycle?.blockReason??'Tracking/view confidence lost'}</dd><dt>Last failed curl cycle</dt><dd>{a.debug.curlCycle?.lastFailure??'None recorded'}</dd><dt>Curl cycle evidence</dt><dd><pre>{JSON.stringify(a.debug.curlCycle??{},null,2)}</pre></dd></>}
       <dt>Completed cycles / Quality Reps</dt><dd>{a.debug.completedCycles??0} / {a.reps}</dd>
+      <dt>Brief tracking gap</dt><dd>{a.debug.trackingGapMs===undefined?'None':`${Math.round(a.debug.trackingGapMs)} ms; rep evidence paused`}</dd>
       <dt>Last completed rep quality</dt><dd>{a.debug.lastRepScore?.toFixed(1)??'Unavailable'}</dd>
       <dt>Plank hold duration</dt><dd>{((a.holdMs??0)/1000).toFixed(1)} s</dd>
       <dt>Camera</dt><dd>{cameraStatus}</dd>
@@ -55,7 +58,7 @@ export default function DebugPanel({ assessment: a, source, cameraStatus, demoSt
         <dt>Squat score status</dt><dd>{a.debug.squat.reason}</dd>
       </>}
     </dl>
-<details><summary>Thresholds: src/config.ts</summary><pre>{JSON.stringify({exercises:EXERCISES,frontSquat:FRONT_SQUAT,views:VIEW,feedback:FEEDBACK}, null, 2)}</pre></details>
+<details><summary>Thresholds: src/config.ts</summary><pre>{JSON.stringify({exercises:EXERCISES,frontSquat:FRONT_SQUAT,views:VIEW,feedback:FEEDBACK,tracking:TRACKING}, null, 2)}</pre></details>
     <ValidationPanel assessment={a} exercise={exercise} view={view} source={source}/>
     <div className="debug-tables">
       <table><caption>Landmark confidence · * required for framing</caption><thead><tr><th>Landmark</th><th>Visibility</th><th>In frame</th></tr></thead><tbody>{a.debug.landmarks.map(p => <tr key={p.index}><td>{p.name}{p.required ? ' *' : ''}</td><td>{p.visibility.toFixed(2)}</td><td>{p.inFrame ? 'Yes' : 'No'}</td></tr>)}</tbody></table>

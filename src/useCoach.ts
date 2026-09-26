@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { SessionMetrics } from './recap/summary';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PoseLandmarker } from '@mediapipe/tasks-vision';
 import { TARGET, TRACKING, type CameraView, type ExerciseId } from './config';
 import type { SessionSource } from './camera';
@@ -9,6 +10,11 @@ import { demoFrame } from './pose/demoFrame';
 import type { Pose } from './pose/types';
 
 export function useCoach(exercise: ExerciseId, source: SessionSource, view: CameraView = 'side') {
+  const sessionMetrics=useRef<SessionMetrics|null>(null);
+  if(!sessionMetrics.current)sessionMetrics.current=new SessionMetrics(exercise,view,source.kind);
+  const stopRef=useRef<()=>void>(()=>{});
+  const stop=useCallback(()=>stopRef.current(),[]);
+  const getSummary=useCallback(()=>sessionMetrics.current!.snapshot(),[]);
   const videoRef = useRef<HTMLVideoElement>(null), canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<'loading' | 'running' | 'error'>('loading');
   const [message, setMessage] = useState('Waiting for camera permission');
@@ -38,7 +44,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
     const fail = (text: string) => {
       if (disposed) return;
       cancelAnimationFrame(raf);
-      result = engine.interrupt(text); setAssessment(result);
+      sessionMetrics.current!.interrupt();result = engine.interrupt(text); setAssessment(sessionMetrics.current!.forDisplay(result));
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       setMessage(text); setStatus('error'); target.reset();setTargetState('selecting');
       model?.close(); model = undefined;
@@ -51,7 +57,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
       if (!canvas) return;
       if (pausedRef.current) {
         if (!wasPaused) {
-          result = engine.interrupt(); setAssessment(result); wasPaused = true;pose=[];target.reset();setTargetState('selecting');
+          sessionMetrics.current!.interrupt();result = engine.interrupt(); setAssessment(sessionMetrics.current!.forDisplay(result)); wasPaused = true;pose=[];target.reset();setTargetState('selecting');
           canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
         }
         raf = requestAnimationFrame(tick); return;
@@ -66,25 +72,29 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
             const frame=demoFrame(exercise,view,elapsed/1000);
             const output = engine.update(frame.pose, now, 1, false, frame.world);
             pose = output.pose; result = output.assessment;setTargetState('locked');
+            sessionMetrics.current!.observe(result,now);
           } else if (source.kind === 'camera' && video && model && video.readyState >= 2 && video.currentTime !== lastFrame) {
             lastFrame = video.currentTime; lastVideoAt = now;
             const detected = model.detectForVideo(video, now);
             const selected = target.update(detected.landmarks, now, w/h);
             setTargetState(selected.state);
-            // A fresh lock may be another person: discard the previous person's session metrics.
-            if(selected.acquired)engine=new CoachEngine(exercise,view);
+            // A fresh lock resets live evaluation; retain only anonymous session aggregates.
+            if(selected.acquired){engine=new CoachEngine(exercise,view);sessionMetrics.current!.newEvaluator();}
             const world = selected.index === undefined ? undefined : detected.worldLandmarks[selected.index];
             if(selected.pose) {
               const output = engine.update(selected.pose, now, w / h, false, world);
               pose = output.pose; result = output.assessment;
+              sessionMetrics.current!.observe(result,now);
             } else {
-              pose=[];result=engine.interrupt('Target person not reliably matched');
+              sessionMetrics.current!.interrupt();pose=[];
+              result=selected.state==='occluded'?engine.update(undefined,now,w/h).assessment:engine.interrupt('Target person not reliably matched');
+              result.squatVisual=undefined;
             }
           } else if (!demo && now - lastVideoAt > TARGET.maxFrameGapMs) {
-            pose = []; result = engine.interrupt('Waiting for fresh camera frames');setTargetState(target.update([],now,w/h).state);
+            sessionMetrics.current!.interrupt();pose = []; result = engine.interrupt('Waiting for fresh camera frames');setTargetState(target.update([],now,w/h).state);
           }
           lastInference = now;
-          setAssessment(result);
+          setAssessment(sessionMetrics.current!.forDisplay(result));
         }
         const ctx = canvas.getContext('2d');
         if (ctx) { ctx.clearRect(0, 0, w, h); drawPose(ctx, pose, w, h, result, now, demo); }
@@ -148,13 +158,16 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
     };
     void boot();
     const video = videoRef.current;
-    return () => {
+    const cleanup = () => {
+      if(disposed)return;
       disposed = true; cancelAnimationFrame(raf); clearTimeout(modelTimer);
       streamRef.current?.getVideoTracks().forEach(track => { track.onended = null; });
       streamRef.current = null;
       if (video) { video.pause(); video.srcObject = null; }
       model?.close(); release?.();
     };
+    stopRef.current=cleanup;
+    return cleanup;
   }, [exercise, source, view]);
-  return { videoRef, canvasRef, status, message, hasVideo, targetState, paused, togglePause, assessment };
+  return { videoRef, canvasRef, status, message, hasVideo, targetState, paused, togglePause, assessment, getSummary, stop };
 }
