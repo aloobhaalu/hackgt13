@@ -4,7 +4,7 @@ import { endedRecap } from './recap/client';
 import RecapPayload from './components/RecapPayload';
 import { type Recap } from './recap/content';
 import type { SessionSummary } from './recap/summary';
-import RepCounter from './components/RepCounter';
+import HoldTimer from './components/HoldTimer';
 import { alignmentText } from './pose/scoreDisplay';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, Camera, LockKeyhole, Pause, Play, RotateCcw, Square, VideoOff } from 'lucide-react';
@@ -42,7 +42,7 @@ export default function App() {
   const start = (exercise: ExerciseId, view: CameraView = EXERCISES[exercise].recommendedView, demo = false) => {
     setChoosing(null);setRecap(null);recapRun.current++;
     camera.current?.dispose();
-    // This call is intentionally inside the click handler, not in an effect or after model loading.
+    // Ask for the camera during the click so the browser sees the user action
     const source: SessionSource = demo ? { kind: 'demo' } : { kind: 'camera', camera: requestCamera() };
     camera.current = source.kind === 'camera' ? source.camera : null;
     setScreen({ type: 'session', exercise, view, source, key: ++sequence.current });
@@ -94,7 +94,7 @@ function Session({ exercise, view, source, debug, finished, end, back, retry, de
       <canvas ref={canvasRef} className="pose-canvas" aria-label="White pose skeleton. Orange joint points toward a pulsing mint target when adjustment is needed."/>
       {!finished && status === 'running' && !paused && targetState==='locked' && <>
         <div className="alignment-indicator" aria-label="Form Alignment"><strong>{alignmentText(a)}</strong></div>
-        <div className="stage-bottom"><RepCounter exercise={exercise} assessment={a}/></div>
+        {exercise==='plank'&&<div className="stage-bottom"><HoldTimer durationMs={a.holdMs??0}/></div>}
       </>}
       {!finished && hasVideo && !demo && !paused && status!=='error' && <TargetGuide visible={targetState==='selecting'}/>}
       {!finished && status === 'loading' && !hasVideo && <div className="stage-overlay"><div className="loader"><Camera size={30}/></div><p role="status">{message}</p></div>}

@@ -24,7 +24,8 @@ function json(res:ServerResponse,status:number,body:unknown,head=false) {
   res.end(head?undefined:text);
 }
 
-/** Only dist is public. Server code, environment files and repository files are never static roots. */
+// Only serve files from the frontend build
+// Keep server code, secrets and repo files outside the public folder
 export async function createProductionServer(options:{distDirectory:string;recap?:RecapSettings}) {
   const root=await realpath(options.distDirectory);
   const inside=(file:string)=>{const path=relative(root,file);return path!== '..'&&!path.startsWith(`..${sep}`)&&!isAbsolute(path);};
@@ -49,7 +50,7 @@ export async function createProductionServer(options:{distDirectory:string;recap
     res.setHeader('X-Frame-Options','DENY');
     res.setHeader('Permissions-Policy','camera=(self), microphone=()');
     void (async()=>{
-      // Decode before resolving; never normalize away a traversal or expose a dotfile.
+      // Decode the path first so traversal attempts and hidden files stay blocked
       let path:string;
       try {path=decodeURIComponent((req.url??'/').split('?')[0]);}
       catch {json(res,400,{error:'Invalid path'});return;}
@@ -62,7 +63,7 @@ export async function createProductionServer(options:{distDirectory:string;recap
         json(res,200,{status:'ok'},head);return;
       }
       if(path==='/api/session-recap') {
-        // The exact same strict aggregate allowlist, timeout and local fallback as development.
+        // Use the same data checks, timeout and local fallback as dev mode
         await recap(req,res,()=>json(res,404,{error:'Not found'}));return;
       }
       if(path==='/api'||path.startsWith('/api/')){json(res,404,{error:'Not found'},head);return;}

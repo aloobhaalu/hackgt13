@@ -44,11 +44,11 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
     const fail = (text: string) => {
       if (disposed) return;
       cancelAnimationFrame(raf);
-      sessionMetrics.current!.interrupt();result = engine.interrupt(text); setAssessment(sessionMetrics.current!.forDisplay(result));
+      sessionMetrics.current!.interrupt();result = engine.interrupt(text); setAssessment(result);
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       setMessage(text); setStatus('error'); target.reset();setTargetState('selecting');
       model?.close(); model = undefined;
-      // Keep an already available video visible, even if the model failed to load.
+      // Keep an already available video visible, even if the model failed to load
     };
     const tick = (now: number) => {
       if (disposed) return;
@@ -57,7 +57,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
       if (!canvas) return;
       if (pausedRef.current) {
         if (!wasPaused) {
-          sessionMetrics.current!.interrupt();result = engine.interrupt(); setAssessment(sessionMetrics.current!.forDisplay(result)); wasPaused = true;pose=[];target.reset();setTargetState('selecting');
+          sessionMetrics.current!.interrupt();result = engine.interrupt(); setAssessment(result); wasPaused = true;pose=[];target.reset();setTargetState('selecting');
           canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
         }
         raf = requestAnimationFrame(tick); return;
@@ -78,7 +78,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
             const detected = model.detectForVideo(video, now);
             const selected = target.update(detected.landmarks, now, w/h);
             setTargetState(selected.state);
-            // A fresh lock resets live evaluation; retain only anonymous session aggregates.
+            // Start fresh when a person locks in and keep only the session aggregates
             if(selected.acquired){engine=new CoachEngine(exercise,view);sessionMetrics.current!.newEvaluator();}
             const world = selected.index === undefined ? undefined : detected.worldLandmarks[selected.index];
             if(selected.pose) {
@@ -94,7 +94,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
             sessionMetrics.current!.interrupt();pose = []; result = engine.interrupt('Waiting for fresh camera frames');setTargetState(target.update([],now,w/h).state);
           }
           lastInference = now;
-          setAssessment(sessionMetrics.current!.forDisplay(result));
+          setAssessment(result);
         }
         const ctx = canvas.getContext('2d');
         if (ctx) { ctx.clearRect(0, 0, w, h); drawPose(ctx, pose, w, h, result, now, demo); }
@@ -103,7 +103,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
     };
     const boot = async () => {
       if (source.kind === 'demo') {
-        // The generator can only feed an explicitly selected demo source, never the camera branch.
+        // The generator can only feed an explicitly selected demo source, never the camera branch
         setStatus('running'); raf = requestAnimationFrame(tick); return;
       }
       try {
@@ -121,7 +121,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
         video.srcObject = stream;
         await video.play();
         if (disposed) return;
-        // Display camera immediately. Model loading never hides the live video.
+        // Show the camera while the model finishes loading
         setHasVideo(true);setTargetState('selecting');setMessage('Loading pose tracking');
 
         const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');

@@ -11,7 +11,6 @@
       <stop offset="1" stop-color="#79ffff"/>
     </linearGradient>
   </defs>
-  <!-- A dark contour keeps the mark legible on light and dark surfaces. -->
   <path d="M665 662 312 1007h65c30 0 48-10 73-34l297-218 54-53Z" fill="#142025"/>
   <g fill="url(#mint)" stroke="#142025" stroke-width="42" stroke-linejoin="round" paint-order="stroke fill">
     <path d="m316 275 454 1c125 0 200 94 201 202 0 40-19 49-54 49h-81c0-15-4-30-10-42l74 4c24 1 32-5 32-26 0-90-74-161-162-161l-404-2c-21 0-37-8-50-25Z"/>

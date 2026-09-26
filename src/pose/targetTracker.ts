@@ -5,7 +5,8 @@ export type TargetState = 'selecting' | 'locked' | 'occluded';
 type Body = { index: number; pose: Pose; core: Point[]; scale: number; center: Point };
 export type TargetSelection = { state: TargetState; pose?: Pose; index?: number; acquired: boolean };
 
-/** Short-term geometric association, not identity recognition. Ambiguity pauses output. */
+// Follow the same visible body using its position and size
+// Pause feedback when we cannot confidently match it
 export class TargetTracker {
   private locked: Body | null = null;
   private candidate: Body | null = null;
@@ -22,8 +23,8 @@ export class TargetTracker {
     const bodies: Body[]=poses.flatMap((pose,index)=>{
       const reliable=(p:Point|undefined)=>p && p.visibility>=C.visibility && Number.isFinite(p.x) && Number.isFinite(p.y) && p.x>=0 && p.x<=1 && p.y>=0 && p.y<=1;
       if(![0,1].some(side=>reliable(pose[11+side]) && reliable(pose[23+side])))return [];
-      // The far side can be occluded. Association uses the visible pair as a fallback;
-      // the original, unmodified landmarks alone are passed to exercise evaluation.
+      // Use the visible shoulder and hip if the far side is hidden
+      // Pass the original landmarks to the exercise checks
       const points=[11,12,23,24].map(i=>reliable(pose[i])?pose[i]:pose[i%2===1?i+1:i-1]);
       if(points.some(p=>!reliable(p)))return [];
       const core=points.map(p=>({...p,x:p.x*aspect}));
@@ -34,7 +35,7 @@ export class TargetTracker {
     });
     const match=(a:Body,b:Body)=>{
       if(Math.max(a.scale/b.scale,b.scale/a.scale)>C.maxScaleRatio)return Infinity;
-      // Sorting each pair avoids left/right landmark swaps in a side profile.
+      // Sorting each pair avoids left/right landmark swaps in a side profile
       const pair=(start:number)=>{
         const left=a.core.slice(start,start+2).sort((p,q)=>p.x-q.x);
         const right=b.core.slice(start,start+2).sort((p,q)=>p.x-q.x);
@@ -47,7 +48,7 @@ export class TargetTracker {
       const best=matches[0];
       if(best && best.distance<=C.maxMatchDistance && matches[1] && matches[1].distance-best.distance<=C.matchMargin)this.ambiguous=true;
       const certain=!this.ambiguous && best && best.distance<=C.maxMatchDistance && (!matches[1] || matches[1].distance-best.distance>C.matchMargin);
-      // Pause on a stale interval; crossing/overlap ambiguity requires a new acquisition.
+      // Pause on a stale interval, crossing/overlap ambiguity requires a new acquisition
       if(!gap && now-this.lastSeen<C.lostMs && certain) {
         this.locked=best.body; this.lastSeen=now;
         return {state:'locked',pose:best.body.pose,index:best.body.index,acquired:false};

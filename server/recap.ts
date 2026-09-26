@@ -49,7 +49,7 @@ export function recapHandler(settings:Settings) {
       const summary=parseSummary(JSON.parse(body));
       if(!summary){reply(400,{error:'Invalid aggregate summary'});return;}
       const recap=await generateRecap(summary,{...settings,report:diagnostics=>{
-        // Safe outcome metadata only: never headers containing credentials or model response bodies.
+        // Report only the recap outcome, without secret headers or Gemini response bodies
         res.setHeader('X-Recap-Source',diagnostics.source);res.setHeader('X-Gemini-Called',String(diagnostics.geminiCalled));res.setHeader('X-Recap-Reason',diagnostics.reason);
       }});
       reply(200,recap);

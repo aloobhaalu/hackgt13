@@ -2,7 +2,6 @@ import type { CameraView, ExerciseId } from '../config';
 import type { Assessment, Point, Pose } from './types';
 import { curlFacing, curlWrist } from './curlVisual';
 
-/** References use measured segments and current anchors, never a screen template. */
 export function referenceVisual(p: Pose, id: ExerciseId, view: CameraView, a: Assessment, aspect: number): NonNullable<Assessment['squatVisual']> {
   const framing=!p.length || a.debug.landmarks.some(l=>l.required&&(!l.inFrame||l.visibility<0.45));
   const reference: Pose[]=[];

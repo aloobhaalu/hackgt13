@@ -2,7 +2,8 @@ import { localRecap, parseRecap, type Recap } from './content';
 import { parseSummary, type SessionSummary } from './summary';
 import { RECAP_REASONS, type RecapDiagnostics, type RecapReason } from './diagnostics';
 
-/** Constructed at End, called once; no retries or effects tied to live frames. */
+// Create this when the session ends and reuse the same request
+// Live camera frames never trigger a recap
 export function endedRecap(summary:SessionSummary,fetcher:typeof fetch=fetch,timeoutMs=3500,report?:(diagnostics:RecapDiagnostics)=>void) {
   const safe=parseSummary(summary),fallback=localRecap(summary);
   type Result={recap:Recap;diagnostics:RecapDiagnostics};

@@ -7,7 +7,7 @@ import RecapPayload from './RecapPayload';
 
 export default function SessionRecap({summary,recap,debug,done,diagnostics}:{summary:SessionSummary;recap:Recap|null;debug:boolean;done:()=>void;diagnostics?:RecapDiagnostics}) {
   const dialog=useRef<HTMLElement>(null),button=useRef<HTMLButtonElement>(null);
-  const empty=summary.exercise==='plank'?summary.totalHoldMs===0:summary.completedReps===0&&summary.validScoreSamples===0;
+  const empty=summary.exercise==='plank'?summary.totalHoldMs===0:summary.validScoreSamples===0;
   useEffect(()=>{
     const previousOverflow=document.body.style.overflow;
     document.body.style.overflow='hidden';button.current?.focus();
@@ -28,7 +28,7 @@ export default function SessionRecap({summary,recap,debug,done,diagnostics}:{sum
       </div>
       <div className={`recap-totals${empty?' is-empty':''}`}>{summary.exercise==='plank' ? <>
         <span><strong>{holdTime(summary.bestHoldMs)}</strong> Best Hold</span><span><strong>{holdTime(summary.totalHoldMs)}</strong> Total Hold Time</span>
-      </> : <><span><strong>{summary.completedReps}</strong> Total Reps</span><span><strong>{summary.qualityReps}</strong> Quality Reps</span></>}</div>
+      </> : <><span><strong>{summary.averageAlignment===null?'—':`${Math.round(summary.averageAlignment)}%`}</strong> Average Form Alignment</span><span><strong>{summary.bestAlignment===null?'—':`${Math.round(summary.bestAlignment)}%`}</strong> Best Form Alignment</span></>}</div>
       {debug&&<RecapPayload summary={summary} diagnostics={diagnostics} ended/>}
       <button className="primary-button recap-done" onClick={done} ref={button}>Done</button>
     </section>

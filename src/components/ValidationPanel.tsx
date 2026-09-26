@@ -3,7 +3,7 @@ import type { Assessment } from '../pose/types';
 import { validationRecord } from '../pose/validation';
 import { BRAND } from '../config';
 
-/** Mounted only inside developer diagnostics; closing debug mode stops logging. */
+// Closing debug mode also stops these local validation logs
 export default function ValidationPanel({assessment,exercise,view,source}:{assessment:Assessment;exercise:string;view:string;source:string}) {
   const [enabled,setEnabled]=useState(false);
   const last=useRef({at:-Infinity,start:0,signature:''});

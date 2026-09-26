@@ -4,7 +4,7 @@ import type { Assessment, Point, Pose } from './types';
 const visible = (p?: Point) => !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && p.visibility >= EXERCISES.squat.visibility && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
 const segment = (a: Point, b: Point, aspect: number) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
 
-/** Measured limb lengths and planted ankles; no screen-position template. */
+// Measured limb lengths and planted ankles
 export function squatReference(pose: Pose, aspect: number): Pose[] {
   const side = [0, 1].find(s => [11, 23, 25, 27].every(i => visible(pose[i + s])));
   if (side === undefined) return [];
@@ -22,7 +22,7 @@ export function squatReference(pose: Pose, aspect: number): Pose[] {
       const h = at(k.x - direction * thigh * Math.sin(flex * 1.35) / aspect, k.y - thigh * Math.cos(flex * 1.35));
       const sh = at(h.x + direction * torso * Math.sin(flex * 0.35) / aspect, h.y - torso * Math.cos(flex * 0.35));
       ghost[27 + side] = { ...footAnchor, visibility: 1 }; ghost[25 + side] = k; ghost[23 + side] = h; ghost[11 + side] = sh;
-      // Arms are optional, and use observed lengths when available.
+      // Arms are optional, and use observed lengths when available
       if (visible(pose[13 + side]) && visible(pose[15 + side])) {
         const upper = segment(pose[11 + side], pose[13 + side], aspect), lower = segment(pose[13 + side], pose[15 + side], aspect);
         ghost[13 + side] = at(sh.x + direction * upper * flex / aspect, sh.y + upper * (1 - flex));

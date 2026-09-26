@@ -12,13 +12,14 @@ export type SessionSummary<E extends ExerciseId = ExerciseId> = { [K in E]: {
   exercise:K; view:'front'|'side'; source:'camera'|'demo';
   enoughValidData:boolean;averageAlignment:number|null; bestAlignment:number|null; validScoreSamples:number;
   issues:Record<typeof ISSUE_KEYS[K][number],IssueAggregate>; rejectedMovements:number;
-} & (K extends 'plank' ? {totalHoldMs:number;bestHoldMs:number} : {completedReps:number;qualityReps:number}) }[E];
+} & (K extends 'plank' ? {totalHoldMs:number;bestHoldMs:number} : Record<never,never>) }[E];
 const clamp=(n:number)=>Math.max(0,Math.min(1,n));
 const round=(n:number)=>Math.round(n*100)/100;
 
-/** Retains counters only. No assessment, coordinates, images or per-frame history are stored. */
+// Keep just the session totals, alignment summaries and issue counts
+// Leave camera frames and landmark history out of the recap
 export class SessionMetrics<E extends ExerciseId = ExerciseId> {
-  private completed=0;private quality=0;private previousCompleted=0;private previousQuality=0;private partialCount=0;private partialTotal=0;
+  private partialCount=0;private partialTotal=0;
   private scores=0;private scoreTotal=0;private best:number|null=null;
   private scoreAt:number|null=null;
   private active=new Map<IssueKey,number>();
@@ -29,11 +30,9 @@ export class SessionMetrics<E extends ExerciseId = ExerciseId> {
     this.issues=Object.fromEntries(ISSUE_KEYS[exercise].map(key=>[key,{count:0,total:0,max:0}]));
   }
   interrupt(){this.previousHold=null;this.continuousHold=0;this.active.clear();this.scoreAt=null;}
-  newEvaluator(){this.interrupt();this.previousCompleted=0;this.previousQuality=0;this.partialCount=0;this.partialTotal=0;this.active.clear();this.rejectionCounted=false;this.scoreAt=null;}
+  newEvaluator(){this.interrupt();this.partialCount=0;this.partialTotal=0;this.active.clear();this.rejectionCounted=false;this.scoreAt=null;}
   observe(a:Assessment,now:number) {
     if(a.debug.exercise!==this.exercise){this.interrupt();return;}
-    if(a.debug.completedCycles!==undefined){this.completed+=Math.max(0,a.debug.completedCycles-this.previousCompleted);this.previousCompleted=Math.max(this.previousCompleted,a.debug.completedCycles);}
-    this.quality+=Math.max(0,a.reps-this.previousQuality);this.previousQuality=Math.max(this.previousQuality,a.reps);
     const p=a.debug.curlPartial;
     if(this.exercise==='curl' && p && p.count>=this.partialCount) {
       const bucket=this.issues.partialRange!;
@@ -97,20 +96,16 @@ export class SessionMetrics<E extends ExerciseId = ExerciseId> {
     if(rejected && !this.rejectionCounted){this.rejected++;this.rejectionCounted=true;}
     else if(!rejected && a.debug.viewValid && a.debug.coachingEnabled)this.rejectionCounted=false;
   }
-  /** Presentation totals only; call after observe(), never feed them back into the evaluator. */
-  forDisplay(a:Assessment):Assessment {
-    if(this.exercise==='plank')return a;
-    return {...a,reps:this.quality,debug:{...a.debug,completedCycles:this.completed}};
-  }
   snapshot():SessionSummary<E> {
     return {exercise:this.exercise,view:this.view,source:this.source,
-      ...(this.exercise==='plank'?{totalHoldMs:Math.round(this.totalHold),bestHoldMs:Math.round(this.bestHold)}:{completedReps:this.completed,qualityReps:this.quality}),
-      enoughValidData:this.scores>0&&(this.exercise==='plank'?this.totalHold>0:this.completed>0),averageAlignment:this.scores?round(this.scoreTotal/this.scores):null,bestAlignment:this.best,validScoreSamples:this.scores,
+      ...(this.exercise==='plank'?{totalHoldMs:Math.round(this.totalHold),bestHoldMs:Math.round(this.bestHold)}:{}),
+      enoughValidData:this.scores>0&&(this.exercise!=='plank'||this.totalHold>0),averageAlignment:this.scores?round(this.scoreTotal/this.scores):null,bestAlignment:this.best,validScoreSamples:this.scores,
       issues:Object.fromEntries(ISSUE_KEYS[this.exercise].map(key=>{const b=this.issues[key]!;return [key,{count:b.count,averageSeverity:b.count?round(b.total/b.count):0,maxSeverity:round(b.max)}];})),rejectedMovements:this.rejected} as unknown as SessionSummary<E>;
   }
 }
 
-/** Strict boundary: reject extra keys rather than forwarding arbitrary client data. */
+// Check every field before the summary leaves the app
+// Reject anything outside the aggregate data we expect
 export function parseSummary(value:unknown):SessionSummary|null {
   const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
   const exact=(v:Record<string,unknown>,keys:string[])=>Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
@@ -118,13 +113,13 @@ export function parseSummary(value:unknown):SessionSummary|null {
   const count=(v:unknown)=>num(v,1000000)&&Number.isInteger(v);
   if(!object(value)||!['squat','curl','plank'].includes(value.exercise as string))return null;
   const exercise=value.exercise as ExerciseId,plank=exercise==='plank';
-  if(!exact(value,['exercise','view','source',...(plank?['totalHoldMs','bestHoldMs']:['completedReps','qualityReps']),'enoughValidData','averageAlignment','bestAlignment','validScoreSamples','issues','rejectedMovements']))return null;
+  if(!exact(value,['exercise','view','source',...(plank?['totalHoldMs','bestHoldMs']:[]),'enoughValidData','averageAlignment','bestAlignment','validScoreSamples','issues','rejectedMovements']))return null;
   if(!['front','side'].includes(value.view as string)||!['camera','demo'].includes(value.source as string))return null;
   if(![value.validScoreSamples,value.rejectedMovements].every(count))return null;
   if(plank) {
     if(![value.totalHoldMs,value.bestHoldMs].every(v=>num(v,86400000)&&Number.isInteger(v))||Number(value.bestHoldMs)>Number(value.totalHoldMs))return null;
-  } else if(![value.completedReps,value.qualityReps].every(count)||Number(value.qualityReps)>Number(value.completedReps))return null;
-  if(value.enoughValidData!==(Number(value.validScoreSamples)>0&&(plank?Number(value.totalHoldMs)>0:Number(value.completedReps)>0)))return null;
+  }
+  if(value.enoughValidData!==(Number(value.validScoreSamples)>0&&(!plank||Number(value.totalHoldMs)>0)))return null;
   if(![value.averageAlignment,value.bestAlignment].every(v=>v===null||num(v,100)))return null;
   if((value.validScoreSamples===0)!==(value.averageAlignment===null)|| (value.averageAlignment===null)!==(value.bestAlignment===null))return null;
   if(value.averageAlignment!==null&&Number(value.averageAlignment)>Number(value.bestAlignment))return null;

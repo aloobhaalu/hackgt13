@@ -2,7 +2,8 @@ import {demoPose} from './demo';
 import type {CameraView} from '../config';
 import type {Pose} from './types';
 
-// Independent articulated exercise motion; a static template fills unused landmarks.
+// Move the joints through a test sequence
+// Use the demo template only for landmarks this fixture does not animate
 function frame(flex:number,view:CameraView,hipShift=0,raise=0,scale=1) {
   const p:Pose=demoPose('curl',0,false);
   for(const side of [0,1]) {

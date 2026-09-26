@@ -1,11 +1,11 @@
 import type { ExerciseId } from '../config';
 import type { Point, Pose } from './types';
 import { curlWrist } from './curlVisual';
-/** Synthetic landmarks only. No recorded person or camera data. */
+// These are made-up demo landmarks, never recorded camera data
 export function demoPose(id: ExerciseId, seconds: number, withErrors = true): Pose {
   const p: Pose=Array.from({length:33},()=>({x:0.5,y:0.5,z:0,visibility:0.98}));
   const set=(i:number,x:number,y:number)=>{p[i]={x,y,z:0,visibility:0.98};};
-  // Squat demonstrations include a genuine upright hold for baseline acquisition.
+  // Squat demonstrations include a genuine upright hold for baseline acquisition
   const period=id==='squat'?10:5, local=seconds%period, cycle=local/period;
   const ease=(v:number)=>(1-Math.cos(Math.PI*Math.max(0,Math.min(1,v))))/2;
   const t=id==='squat'?(local<2.6?0:local<4.2?ease((local-2.6)/1.6):local<7.4?1:local<9?1-ease((local-7.4)/1.6):0):(1-Math.cos(cycle*Math.PI*2))/2;
@@ -25,7 +25,7 @@ export function demoPose(id: ExerciseId, seconds: number, withErrors = true): Po
       p[15+side]=curlWrist(p[13+side],.165,t,'front',-sign);
     }
   } else {
-    // Held high plank: hands and toes support a stable shoulder-to-ankle line.
+    // Held high plank: hands and toes support a stable shoulder-to-ankle line
     for(const side of [0,1]) {
       const o=side*.022;
       set(11+side,.27+o,.38);set(13+side,.27+o,.5425);set(15+side,.27+o,.705);

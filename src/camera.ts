@@ -2,7 +2,8 @@ import { BRAND } from './config';
 
 export type CameraResult = { stream: MediaStream; error?: never } | { error: Error; stream?: never };
 
-/** Starts synchronously in the card/retry click, before React renders or any model downloads. */
+// Ask for the camera as soon as the user clicks
+// React and model loading can catch up afterward
 export function requestCamera(getMedia?: () => Promise<MediaStream>) {
   let disposed = false;
   let stream: MediaStream | undefined;
@@ -19,7 +20,7 @@ export function requestCamera(getMedia?: () => Promise<MediaStream>) {
     const pending = getMedia ? getMedia() : navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false,
     });
-    // Attach rejection handling immediately, including before the component mounts.
+    // Attach rejection handling immediately, including before the component mounts
     result = pending.then(value => {
       stream = value;
       if (disposed) dispose();
@@ -34,7 +35,8 @@ export function requestCamera(getMedia?: () => Promise<MediaStream>) {
       consumers++;
       return () => {
         consumers--;
-        // React StrictMode reattaches effects in the same turn. Do not stop that shared request.
+        // React StrictMode reconnects effects right away
+        // Keep the shared camera request alive during that reconnect
         queueMicrotask(() => { if (consumers === 0) dispose(); });
       };
     },

@@ -66,7 +66,7 @@ test('health contains no environment, model, session, or key information',async(
 test('static boundaries reject encoded traversal, dotfiles and symlinks outside dist',async()=>{
   const f=await fixture();
   try {
-    // A directory junction works without Windows symlink privileges as well as on Ubuntu.
+    // A directory junction works without Windows symlink privileges as well as on Ubuntu
     const outside=join(f.directory,'private');await mkdir(outside);await writeFile(join(outside,'secret.json'),'test-secret-never-public');
     await symlink(outside,join(f.dist,'escape'),'junction');
     for(const path of ['/.env','/%2eenv','/../.env.local','/%2e%2e/.env.local','/assets/%2e%2e/%2e%2e/.env.local','/assets%5c..%5c.env','/escape/secret.json','/dist-server/index.mjs']) {

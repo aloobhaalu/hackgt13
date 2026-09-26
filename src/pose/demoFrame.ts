@@ -2,13 +2,14 @@ import type { CameraView, ExerciseId } from '../config';
 import { demoPose } from './demo';
 import type { Pose } from './types';
 
-/** Explicit developer demos only. Homepage previews keep using the unchanged demoPose branches. */
+// These frames are only for the developer demo
+// Homepage previews keep their own animation
 export function demoFrame(id: ExerciseId, view: CameraView, seconds: number): { pose: Pose; world?: Pose } {
   const pose=demoPose(id,seconds);
   if(id==='curl'&&view==='side') {
     for(const s of [0,1]) {
       const shift=.48+s*.025-pose[11+s].x;
-      // Recover the forward arc from the front projection's horizontal/depth components.
+      // Recover the forward arc from the front projection's horizontal/depth components
       const dx=Math.hypot(pose[15+s].x-pose[13+s].x,(pose[15+s].z??0)-(pose[13+s].z??0));
       for(const i of [11,13,15,23])pose[i+s].x+=shift;
       pose[15+s].x=pose[13+s].x+dx;

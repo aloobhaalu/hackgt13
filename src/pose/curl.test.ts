@@ -6,7 +6,7 @@ import { demoPose } from './demo';
 import { EXERCISES, type CameraView } from '../config';
 import type { Pose } from './types';
 
-// Independent fixed-length arm fixture: front flexion travels into depth, not sideways.
+// Independent fixed-length arm fixture, front flexion travels into depth like the same line as your upper arm, not sideways
 function frame(flex:number,view:CameraView,hipShift=0,raise=0,scale=1) {
   const p:Pose=demoPose('curl',0,false);
   for(const side of [0,1]) {
@@ -24,34 +24,34 @@ function frame(flex:number,view:CameraView,hipShift=0,raise=0,scale=1) {
 }
 const full=(t:number)=>t<3000?0:t<4500?(t-3000)/1500:t<5100?1:t<6800?1-(t-5100)/1700:0;
 for(const view of ['front','side'] as const) {
-  test(`curl ${view}: calibrates once, completes two full reps and does not fault controlled lowering`,()=>{
+  test(`curl ${view}: calibrates once, coaches repeated full curls and does not fault controlled lowering`,()=>{
     const e=new CoachEngine('curl',view);let last=e.interrupt(),live=false;
     for(let t=0;t<16000;t+=65){const f=frame(full(t<8000?t:t-8000),view);last=e.update(f.pose,t,1,false,f.world).assessment;
-      if(t<2000){assert.equal(last.score,null);assert.equal(last.reps,0);}
+      if(t<2000){assert.equal(last.score,null);}
       if(last.debug.state==='CURLING_UP'){live=true;assert.notEqual(last.score,null);}
       assert.ok(!last.corrections?.some(c=>c.id.startsWith('bottom-range')),'normal controlled lowering is not an incomplete-range fault');
     }
-    assert.ok(live);assert.equal(last.reps,2);assert.equal(last.debug.completedCycles,2);
+    assert.ok(live);assert.equal(last.debug.state,'READY');assert.ok(last.debug.curlCycle?.calibrated);
   });
-  test(`curl ${view}: half lowering and recurl show a downward target and cannot count until a new complete cycle`,()=>{
+  test(`curl ${view}: half lowering and recurl show a downward target and requires full lowering before the next curl`,()=>{
     const e=new CoachEngine('curl',view);let target=false,both=false,last=e.interrupt();
     for(let t=0;t<19500;t+=65){
       const flex=t<5100?full(t):t<6000?1-(t-5100)/1800:t<7000?.5:t<8000?.5+(t-7000)/2000:t<8500?1:t<10300?1-(t-8500)/1800:t<11000?0:full(t-11000);
       const f=frame(flex,view,view==='side'&&t>5600&&t<8500?.14:0);
       last=e.update(f.pose,t,1,false,f.world).assessment;
-      if(t<14000)assert.equal(last.reps,0);
+      if(t>7600&&t<8300)assert.equal(last.debug.curlCycle?.validCycle,false);
       const cues=last.corrections?.filter(c=>c.id.startsWith('bottom-range'))??[];
       if(cues.length && t<8500){target=true;for(const c of cues){assert.ok(c.target.y>f.pose[c.joint].y);assert.equal(c.anchor,c.joint-2);assert.equal(c.kind,'translation');}assert.notEqual(last.score,null);}
       both ||= cues.length>0 && !!last.corrections?.some(c=>c.id==='torso');
       if(t>11000&&t<13500)assert.equal(cues.length,0,'returning down removes only the bottom correction');
     }
-    assert.ok(target);if(view==='side')assert.ok(both);assert.equal(last.reps,1);assert.equal(last.debug.completedCycles,1);
+    assert.ok(target);if(view==='side')assert.ok(both);assert.equal(last.debug.state,'READY');
   });
-  test(`curl ${view}: static bends, tiny pulses and lateral raises cannot become reps`,()=>{
+  test(`curl ${view}: static bends, tiny pulses and lateral raises cannot enable scoring`,()=>{
     for(const mode of ['static','tiny','raise']){const e=new CoachEngine('curl',view);
       for(let t=0;t<9000;t+=65){const flex=mode==='static'?.6:mode==='tiny'&&t>3000?.04*(1+Math.sin(t/500)):mode==='raise'?full(t):0;
         const f=frame(flex,view,0,mode==='raise'&&t>3000?75:0),a=e.update(f.pose,t,1,false,f.world).assessment;
-        assert.equal(a.reps,0,mode);assert.equal(a.score,null,mode);
+        assert.equal(a.score,null,mode);
       }
     }
   });
@@ -85,7 +85,7 @@ test('curl calibration duration is in the requested range and measurements are s
   const a=new CoachEngine('curl','side'),b=new CoachEngine('curl','side');
   for(let t=0;t<8500;t+=65){const x=frame(full(t),'side',0,0,1),y=frame(full(t),'side',0,0,.7);
     const p=a.update(x.pose,t,1,false,x.world).assessment,q=b.update(y.pose,t,1,false,y.world).assessment;
-    assert.equal(p.reps,q.reps);assert.equal(p.score,q.score);assert.equal(p.debug.state,q.debug.state);
+    assert.equal(p.score,q.score);assert.equal(p.debug.state,q.debug.state);
   }
 });
 
@@ -94,10 +94,10 @@ test('an extended elbow with the whole arm still raised does not satisfy wrist r
   for(let t=0;t<10000;t+=65){const f=frame(full(t),'side');
     if(t>6000&&t<8300)for(const i of [13,14,15,16]){f.pose[i].y-=.05;f.world[i].y-=.05;}
     last=e.update(f.pose,t,1,false,f.world).assessment;
-    if(t>7200&&t<8200){assert.equal(last.reps,0);const cue=last.corrections?.find(c=>c.id==='bottom-range-0');
+    if(t>7200&&t<8200){const cue=last.corrections?.find(c=>c.id==='bottom-range-0');
       if(cue){seen=true;assert.ok(cue.target.y>f.pose[15].y+.04);assert.ok(cue.targetAnchor);assert.ok(cue.target.y-cue.targetAnchor.y>.1);}}
   }
-  assert.ok(seen);assert.equal(last.reps,1);
+  assert.ok(seen);assert.equal(last.debug.state,'READY');
 });
 
 test('session aggregates come from local torso, elbow, partial-range and rejected-movement detections without network calls',()=>{
@@ -115,32 +115,34 @@ test('session aggregates come from local torso, elbow, partial-range and rejecte
       if(kind==='torso'){assert.ok(summary.issues.backwardLean.count>0);assert.ok(summary.issues.hipDrive.count>0);}
       if(kind==='swing')assert.ok(summary.issues.bodySwing.count>0);
       if(kind==='elbow')assert.ok(summary.issues.elbowDrift.count>0);
-      if(kind==='partial'){assert.ok(summary.issues.incompleteLowering.count>0);assert.equal(summary.issues.partialRange.count,1);assert.equal(summary.completedReps,0);}
-      if(kind==='invalid'){assert.equal(summary.rejectedMovements,1);assert.equal(summary.completedReps,0);}
+      if(kind==='partial'){assert.ok(summary.issues.incompleteLowering.count>0);assert.equal(summary.issues.partialRange.count,1);}
+      if(kind==='invalid'){assert.equal(summary.rejectedMovements,1);}
     }
     assert.equal(requests,0);
   }finally{globalThis.fetch=fetchOriginal;}
 });
 
 
-for(const view of ['front','side'] as const)test(`curl ${view}: natural top reversal and brief down pause count each full cycle once`,()=>{
-  for(const peak of [.85,1]) {const e=new CoachEngine('curl',view);let last=e.interrupt(),previous=0;
+for(const view of ['front','side'] as const)test(`curl ${view}: natural top reversal and brief down pause preserve all movement phases`,()=>{
+  for(const peak of [.85,1]) {const e=new CoachEngine('curl',view);let last=e.interrupt(),previousState='FRAME_INVALID';const phases=new Map<number,Set<string>>();
     for(let t=0;t<10700;t+=65){const phase=(t-3000)%2500;const ease=(x:number)=>(1-Math.cos(Math.PI*x))/2;
       const flex=t<3000?0:phase<1100?ease(phase/1100)*peak:phase<2200?(1-ease((phase-1100)/1100))*peak:0;
       const f=frame(flex,view);last=e.update(f.pose,t,1,false,f.world).assessment;
-      const count=last.debug.completedCycles??0;
-      assert.ok(count===previous||count===previous+1);if(count>previous){assert.equal(last.debug.state,'READY');assert.equal(last.debug.angles.bottomAccepted,1);}previous=count;
+      const cycle=Math.floor((t-3000)/2500);
+      if(cycle>=0&&cycle<3){if(!phases.has(cycle))phases.set(cycle,new Set());phases.get(cycle)!.add(last.debug.state!);}
+      if(previousState==='LOWERING'&&last.debug.state==='READY')assert.equal(last.debug.angles.bottomAccepted,1);
+      previousState=last.debug.state!;
     }
-    assert.equal(last.debug.completedCycles,3);assert.equal(last.reps,3);assert.ok(last.debug.curlCycle?.calibrated);
-    assert.equal(e.interrupt().debug.completedCycles,3);
+    for(const states of phases.values())for(const phase of ['CURLING_UP','TOP','LOWERING','READY'])assert.ok(states.has(phase));
+    assert.equal(phases.size,3);assert.ok(last.debug.curlCycle?.calibrated);assert.equal(e.interrupt().score,null);
   }
 });
 
-for(const view of ['front','side'] as const)test(`curl ${view}: required-landmark loss cancels the current cycle without erasing completed reps`,()=>{
+for(const view of ['front','side'] as const)test(`curl ${view}: required-landmark loss interrupts the current movement and hides scoring`,()=>{
   const e=new CoachEngine('curl',view);let last=e.interrupt(),failure=false;
   for(let t=0;t<16000;t+=65){const f=frame(full(t<8000?t:t-8000),view);
     if(t>11800&&t<12000)f.pose[15].visibility=f.pose[16].visibility=.1;
-    last=e.update(f.pose,t,1,false,f.world).assessment;failure ||= last.debug.curlCycle?.lastFailure==='Tracking/view confidence lost';
+    last=e.update(f.pose,t,1,false,f.world).assessment;if(t>11800&&t<12000)assert.equal(last.score,null);failure ||= last.debug.curlCycle?.lastFailure==='Tracking/view confidence lost';
   }
-  assert.equal(last.debug.completedCycles,1);assert.equal(last.reps,1);assert.ok(failure);
+  assert.ok(failure);
 });

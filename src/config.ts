@@ -12,7 +12,6 @@ export const FEEDBACK = {
   correctionConfirmMs: 200, issueEnter: 0.04, issueRelease: 0.015,
   scoreChangeMin: 2, scoreWindowMs: 350,
   scoreIntervalMs: { squat: 200, curl: 200, plank: 200 },
-  qualityRepThreshold: 82,
 };
 export const FRONT_SQUAT = {
   baselineMs: 1500, baselineRange: 0.025, uprightKnee: 155, minDrop: 0.08,
@@ -25,8 +24,9 @@ export const FRONT_SQUAT = {
   stability: 0.015, maxFootTravel: 0.25, timeoutMs: 14000,
 };
 
-// Prototype heuristics, not clinical or universal movement standards.
-// Angles are degrees. Curl/plank distances use torso or body length; squats use baseline leg length.
+// These are starting points for tuning the prototype, not medical rules
+// Angles use degrees
+// Curl and plank distances use torso or body length, squats use standing leg length
 export const EXERCISES = {
   squat: {
     name: 'Bodyweight squat', short: 'Squat', angle: 'Side view recommended', recommendedView: 'side',
@@ -44,12 +44,12 @@ export const EXERCISES = {
     holdChangeAngle: 2, holdChangeDrop: 0.01, holdChangeStability: 0.08,
     holdIssueThreshold: 0.04,
     holdWeights: { depth: 0.5, torso: 0.3, stability: 0.2 },
-    // Squat classifier: distances/speeds below are normalized by baseline leg length.
+    // Use standing leg length to compare squat distances and speeds
     startKneeMin: 150, startHipMin: 150, startTorsoMax: 25,
     setupHipMin: 95, setupTorsoMax: 75,
     baselineHoldMs: 1500, baselineHipRange: 0.035,
     baselineHipSpeed: 0.08, baselineKneeSpeed: 14,
-    sideShoulderRatioMax: 0.58, sideHipRatioMax: 0.5, // Allow a slightly angled profile.
+    sideShoulderRatioMax: 0.58, sideHipRatioMax: 0.5, // Allow a slightly angled profile
     featureWindow: 3, trackingGraceMs: 180,
     footVisibility: 0.6, depthTargetDrop: 0.07,
     heelVisibility: 0.75, heelBaselineMs: 650, heelBaselineRange: 0.012,
@@ -93,22 +93,22 @@ export const EXERCISES = {
 } as const;
 
 export const TRACKING = {
-  // Suppress output during brief dropouts, but retain an observed rep for the same nearby body.
-  repGraceMs: 180, repResumeTravel: 0.45,
+  // Hide feedback during brief tracking gaps
+  // Keep the movement context if the same person returns nearby
+  recoveryGraceMs: 180, recoveryTravel: 0.45,
   visibility: 0.45,
-  frameTolerance: 0.02,       // Allow small coordinate noise at image boundaries.
-  framingHoldMs: 500,         // Good body landmarks before first assessment.
-  framingLossMs: 500,         // Sustained cropping before a reframe warning.
-  errorHoldMs: 450,           // A correction must persist; removal has no extra delay.
+  frameTolerance: 0.02,       // Allow small coordinate noise at image boundaries
+  framingHoldMs: 500,         // Wait for clear landmarks before starting feedback
+  framingLossMs: 500,         // Wait for persistent cropping before asking for a better frame
+  errorHoldMs: 450,           // Wait before adding a correction and clear it when the issue is gone
   confirmationMs: 700,
-  smoothing: 0.32,            // Landmark exponential moving average.
-  minRepMs: 1100,
+  smoothing: 0.32,            // Smooth landmark movement between frames
   phaseHoldMs: 140,
   ambiguityRatio: 0.72,
   inferenceIntervalMs: 65,
-  movementDelta: 8,          // Actual angle change required before scoring.
+  movementDelta: 8,          // Actual angle change required before scoring
   movementHoldMs: 180,
   scoreSmoothing: 0.18,
-  perfectFrames: 8,           // All observable metrics accepted before 100 is possible.
+  perfectFrames: 8,           // Only allow 100 after all visible checks stay within range
   setupOverlayMs: 2600,
 };

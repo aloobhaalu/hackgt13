@@ -4,7 +4,7 @@ import { createProductionServer, productionPort } from './app';
 try {
   const port=productionPort(process.env.PORT);
   const server=await createProductionServer({
-    // Compiled file lives in dist-server/, outside the public dist/ directory.
+    // Keep the built server outside the public frontend folder
     distDirectory:fileURLToPath(new URL('../dist/',import.meta.url)),
     recap:{apiKey:process.env.GEMINI_API_KEY,model:process.env.GEMINI_MODEL},
   });
