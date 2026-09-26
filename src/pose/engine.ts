@@ -79,13 +79,16 @@ export class CoachEngine {
     const output = this.analyze(raw, now, aspect, ambiguous, world);
     if (this.id === 'squat' && this.view === 'side') {
       output.assessment.squatVisual = ambiguous ? { reference: [], recovery: [], recoveryPose: [], framing: true } : this.squatVisuals.update(output.pose, output.assessment, aspect, now);
-      if (output.assessment.debug.squat?.state !== 'HOLDING') output.assessment.score = null;
+
     }
     else output.assessment.squatVisual = referenceVisual(output.pose, this.id, this.view, output.assessment, aspect);
     output.assessment.debug.exercise=this.id; output.assessment.debug.view=this.view;
     if(this.id==='squat' && this.view==='side') {
       output.assessment.debug.state=output.assessment.debug.squat?.state;
       output.assessment.debug.viewValid=output.assessment.debug.squat?.sideOn ?? false;
+      output.assessment.debug.coachingEnabled=output.assessment.debug.squat?.coachingEnabled ?? false;
+      output.assessment.debug.scoringEnabled=output.assessment.score!==null;
+      output.assessment.debug.scoreUpdatedAt=output.assessment.debug.squat?.scoreUpdatedAt ?? null;
     }
     return output;
   }
@@ -150,10 +153,11 @@ export class CoachEngine {
       const state = result.debug.state;
       return { pose: this.smooth, assessment: {
         ...base, ready: result.debug.trackingReliable && state !== 'FRAME_INVALID', reason: result.debug.reason,
+        scoreStatus:result.score!==null?'live':result.debug.trackingReliable && result.debug.sideOn && result.debug.kneeAngle!==null && result.debug.kneeAngle>=EXERCISES.squat.startKneeMin?'ready':'uncertain',
         reps: result.reps, score: result.score, correction: result.correction, confirmed: result.confirmed,
         corrections: result.corrections,
         phase: state === 'HOLDING' ? 'Hold' : state === 'DESCENDING' ? 'Lower' : state === 'ASCENDING' ? 'Rise' : 'Ready',
-        debug: { ...base.debug, squat: result.debug, reason: result.debug.reason, validMovement: result.evaluating,
+        debug: { ...base.debug, completedCycles:result.debug.completedCycles,lastRepScore:result.debug.lastRepScore,squat: result.debug, reason: result.debug.reason, validMovement: result.evaluating,
           rawScore: result.rawScore, stableFrames: result.stableFrames, components: result.components,
           angles: { knee: result.debug.kneeAngle ?? 0, hip: result.debug.hipAngle ?? 0, torsoLean: result.debug.torsoTilt ?? 0 } },
       } };

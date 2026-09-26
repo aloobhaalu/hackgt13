@@ -111,3 +111,8 @@
 .view-close{position:absolute;right:20px;top:17px;background:none;border:0;color:#aebdb4;font-size:26px;cursor:pointer}
 .placement-figure{width:150px;max-width:100%;height:auto;color:#eef5ef}.placement-corners{stroke:#b9f5aa;stroke-width:1.5;opacity:.6}
 .quick-setup .placement-figure{width:220px}
+
+.target-guide{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition-property:opacity;transition-timing-function:ease-in-out}
+.target-guide[data-visible="true"]{opacity:.24}
+.target-guide svg{height:90%;width:90%;stroke:#bcf6ac;stroke-width:1.25;max-height:100%;overflow:visible}
+@media(prefers-reduced-motion:reduce){.target-guide{transition-duration:0ms!important}}

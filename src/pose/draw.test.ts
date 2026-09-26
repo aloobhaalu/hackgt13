@@ -7,11 +7,12 @@ import type { Correction } from './types';
 
 function recorder() {
   const calls: { name: string; args: number[] }[] = [], colors: string[] = [];
+  const styles: {name:string;value:number}[]=[];
   const context = new Proxy({}, {
     get: (_, name: string) => (...args: number[]) => calls.push({ name, args }),
-    set: (_, name, value) => { if (name === 'strokeStyle') colors.push(value); return true; },
+    set: (_, name, value) => { if (name === 'strokeStyle') colors.push(value); if(name==='globalAlpha'||name==='lineWidth')styles.push({name:String(name),value}); return true; },
   }) as CanvasRenderingContext2D;
-  return { calls, colors, context };
+  return { calls, colors, context, styles };
 }
 for (const kind of ['translation', 'rotation'] as const) {
   test(`${kind} cue draws a connected direction arrow and a visible target at the desired joint`, () => {
@@ -41,4 +42,18 @@ test('every simultaneous correction draws its own target', () => {
   ];
   drawPose(context, pose, 800, 600, { ...emptyAssessment(), ready: true, correction: corrections[0], corrections });
   for (const c of corrections) assert.ok(calls.some(call => call.name === 'arc' && call.args[0] === c.target.x * 800 && call.args[1] === c.target.y * 600));
+});
+
+test('severe corrections use stronger color, opacity and arrow width; unknown severity draws no target',()=>{
+  const pose=demoPose('curl',0,false);
+  const cue:Correction={id:'elbow',label:'',joint:13,anchor:11,kind:'translation',target:{...pose[13],x:pose[11].x},severity:.1};
+  const mild=recorder(),severe=recorder(),unknown=recorder();
+  drawCorrection(mild.context,pose,cue,800,600,0,true);
+  drawCorrection(severe.context,pose,{...cue,severity:1},800,600,0,true);
+  drawCorrection(unknown.context,pose,{...cue,severity:NaN},800,600,0,true);
+  assert.ok(mild.colors.includes('#ffa26b'));assert.ok(severe.colors.includes('#ff785e'));
+  const firstAlpha=(r:ReturnType<typeof recorder>)=>r.styles.find(s=>s.name==='globalAlpha')!.value;
+  assert.ok(firstAlpha(severe)>firstAlpha(mild));
+  const widths=(r:ReturnType<typeof recorder>)=>r.styles.filter(s=>s.name==='lineWidth').map(s=>s.value);
+  assert.ok(widths(severe)[0]>widths(mild)[0]);assert.equal(unknown.calls.length,0);
 });

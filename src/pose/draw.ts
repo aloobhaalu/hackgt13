@@ -1,16 +1,21 @@
 ﻿import { CONNECTIONS, type Assessment, type Correction, type Point, type Pose } from './types';
 
 export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Correction, width: number, height: number, time: number, subtle = false) {
+  if(!Number.isFinite(c.severity) || c.severity<=0)return;
+  const severity=Math.max(0,Math.min(1,c.severity));
+  const opacity=0.4+severity*0.6;
+  const fault=severity>=0.65?'#ff785e':'#ffa26b';
+  const toeCue=c.id.startsWith('toe-direction-');
   const toPixel = (p: Point) => ({ x: p.x * width, y: p.y * height });
   const from = toPixel(pose[c.joint]), target = toPixel(c.target), pivot = toPixel(pose[c.anchor]);
   const size = Math.max(1, Math.min(width, height) / 650);
   if (c.kind === 'instability') {
     // This marks irregular motion, not a positional target to chase.
     const radius = Math.max(5, Math.hypot(from.x - pivot.x, from.y - pivot.y) * 0.06);
-    ctx.save(); ctx.strokeStyle = '#ffa26b'; ctx.lineWidth = 1.5 * size;
+    ctx.save(); ctx.strokeStyle = fault; ctx.lineWidth = (1+severity) * size;
     for (let ring = 0; ring < 2; ring++) {
       const phase = ((time / 900 + ring * 0.5) % 1);
-      ctx.globalAlpha = (1 - phase) * 0.55;
+      ctx.globalAlpha = (1 - phase) * opacity;
       ctx.beginPath(); ctx.arc(from.x, from.y, radius * (1 + phase), 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore(); return;
@@ -19,15 +24,25 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.strokeStyle = color; ctx.lineWidth = lineWidth * size; ctx.stroke();
   };
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.globalAlpha=opacity;
+  if(c.id.startsWith('stance-')) {
+    const side=c.joint-27,dx=target.x-from.x;
+    // Foot placement highlights stay below the ankle; no orange shin/knee target.
+    for(const i of [29+side,31+side]) if(pose[i]?.visibility>=0.45) {
+      const foot=toPixel(pose[i]);
+      segment(from,foot,fault,(subtle?2:3)+severity*2);
+      segment(target,{x:foot.x+dx,y:foot.y},'#bcf6ac99',2);
+    }
+  }
   if (c.id === 'hip-line' || c.id === 'knee-line') {
     segment(toPixel(pose[c.anchor]), toPixel(pose[27 + (c.anchor - 11)]), '#8acfff66', 2);
   }
   // Highlight this issue's affected segment and its target.
-  segment(pivot, from, '#ffa26b', subtle ? 3 : 5);
+  segment(pivot, from, fault, (subtle ? 2 : 3)+severity*2);
   segment(pivot, target, '#b9f5aa45', subtle ? 5 : 15);
   segment(pivot, target, '#bcf6ac99', 2);
-  ctx.beginPath(); ctx.arc(from.x, from.y, 7 * size, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffa26b'; ctx.fill(); ctx.strokeStyle = '#19251f'; ctx.lineWidth = 2 * size; ctx.stroke();
+  ctx.beginPath(); ctx.arc(from.x, from.y, (toeCue?5:7) * size, 0, Math.PI * 2);
+  ctx.fillStyle = fault; ctx.fill(); ctx.strokeStyle = '#19251f'; ctx.lineWidth = 2 * size; ctx.stroke();
 
   // One continuous direction arrow, curved around the pivot for rotation issues.
   let tangent = from;
@@ -36,7 +51,7 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
     const middle = { x: (from.x + target.x) / 2, y: (from.y + target.y) / 2 };
     const v = { x: middle.x - pivot.x, y: middle.y - pivot.y };
     const length = Math.max(1, Math.hypot(v.x, v.y));
-    const bow = Math.max(22 * size, Math.hypot(target.x - from.x, target.y - from.y) * 0.4);
+    const bow = Math.max((toeCue?8:22) * size, Math.hypot(target.x - from.x, target.y - from.y) * 0.4);
     control = { x: middle.x + v.x / length * bow, y: middle.y + v.y / length * bow };
     tangent = control;
   }
@@ -47,17 +62,19 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
     ctx.stroke();
   };
   ctx.strokeStyle = '#0e1713dd'; ctx.lineWidth = (subtle ? 3 : 7) * size; drawArrow();
-  ctx.strokeStyle = '#bcf6ac'; ctx.lineWidth = (subtle ? 1.5 : 3) * size; drawArrow();
+  ctx.globalAlpha=opacity*(1-severity*0.18+Math.sin(time/190)*severity*0.18);
+  ctx.strokeStyle = '#bcf6ac'; ctx.lineWidth = ((subtle ? 1 : 2)+severity*1.5) * size; drawArrow();
   const direction = Math.atan2(target.y - tangent.y, target.x - tangent.x);
-  const tip = { x: target.x - Math.cos(direction) * 9 * size, y: target.y - Math.sin(direction) * 9 * size };
+  const tip = { x: target.x - Math.cos(direction) * (toeCue?4:9) * size, y: target.y - Math.sin(direction) * (toeCue?4:9) * size };
   ctx.beginPath(); ctx.moveTo(tip.x, tip.y);
-  ctx.lineTo(tip.x - Math.cos(direction - 0.5) * 13 * size, tip.y - Math.sin(direction - 0.5) * 13 * size);
-  ctx.lineTo(tip.x - Math.cos(direction + 0.5) * 13 * size, tip.y - Math.sin(direction + 0.5) * 13 * size);
+  ctx.lineTo(tip.x - Math.cos(direction - 0.5) * (toeCue?7:13) * size, tip.y - Math.sin(direction - 0.5) * (toeCue?7:13) * size);
+  ctx.lineTo(tip.x - Math.cos(direction + 0.5) * (toeCue?7:13) * size, tip.y - Math.sin(direction + 0.5) * (toeCue?7:13) * size);
   ctx.closePath(); ctx.fillStyle = '#bcf6ac'; ctx.fill();
 
   // A visible destination, not just an unrelated ghost line.
-  const pulse = 1 + Math.sin(time / 190) * 0.18;
-  ctx.beginPath(); ctx.arc(target.x, target.y, 15 * size * pulse, 0, Math.PI * 2);
+  ctx.globalAlpha=opacity;
+  const pulse = 1 + Math.sin(time / 190) * (0.06+severity*0.2);
+  ctx.beginPath(); ctx.arc(target.x, target.y, (toeCue?9:15) * size * pulse, 0, Math.PI * 2);
   ctx.fillStyle = '#bcf6ac22'; ctx.fill(); ctx.strokeStyle = '#bcf6acbb'; ctx.lineWidth = 2 * size; ctx.stroke();
   ctx.beginPath(); ctx.arc(target.x, target.y, 6 * size, 0, Math.PI * 2);
   ctx.fillStyle = '#bcf6ac'; ctx.fill(); ctx.strokeStyle = '#142219'; ctx.lineWidth = 2 * size; ctx.stroke();

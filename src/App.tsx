@@ -1,9 +1,11 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { alignmentText, holdTime } from './pose/scoreDisplay';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowLeft, ArrowUpRight, Camera, LockKeyhole, Pause, Play, RotateCcw, Square, VideoOff } from 'lucide-react';
 import { BRAND, EXERCISES, type CameraView, type ExerciseId } from './config';
 import { requestCamera, type CameraRequest, type SessionSource } from './camera';
 import MotionDiagram from './components/MotionDiagram';
-import ViewPicker, { Placement } from './components/ViewPicker';
+import TargetGuide from './components/TargetGuide';
+import ViewPicker from './components/ViewPicker';
 import DebugPanel from './components/DebugPanel';
 import { useCoach } from './useCoach';
 
@@ -63,7 +65,7 @@ export default function App() {
 function Session({ exercise, view, source, debug, end, retry, demoStart }: {
   exercise: ExerciseId; view: CameraView; source: SessionSource; debug: boolean; end: () => void; retry: () => void; demoStart: () => void;
 }) {
-  const { videoRef, canvasRef, status, message, hasVideo, showSetup, paused, togglePause, assessment: a } = useCoach(exercise, source, view);
+  const { videoRef, canvasRef, status, message, hasVideo, targetState, paused, togglePause, assessment: a } = useCoach(exercise, source, view);
   const demo = source.kind === 'demo';
   const cameraStatus = paused ? 'Paused' : status === 'error' ? (hasVideo ? 'Tracking unavailable' : 'Camera unavailable') : status === 'loading' ? (hasVideo ? 'Loading tracking' : 'Opening camera') : a.ready ? 'Tracking' : 'Tracking uncertain';
   return <section className="session-page camera-first">
@@ -72,18 +74,18 @@ function Session({ exercise, view, source, debug, end, retry, demoStart }: {
       <video ref={videoRef} muted playsInline className={demo ? 'hidden-video' : ''}/>
       {demo && <div className="stage-grid"/>}
       <canvas ref={canvasRef} className="pose-canvas" aria-label="White pose skeleton. Orange joint points toward a pulsing mint target when adjustment is needed."/>
-      {status === 'running' && !paused && !showSetup && <>
-        <div className="alignment-indicator" aria-label="Form Alignment"><strong>{a.score === null ? '—' : `${a.score}%`}</strong></div>
-        {exercise !== 'plank' && a.reps > 0 && <div className="stage-bottom"><span className="rep-count" aria-label={`${a.reps} completed repetitions`}><strong>{String(a.reps).padStart(2,'0')}</strong></span></div>}
+      {status === 'running' && !paused && targetState==='locked' && <>
+        <div className="alignment-indicator" aria-label="Form Alignment"><strong>{alignmentText(a)}</strong></div>
+        <div className="stage-bottom"><span className="rep-count" aria-label={exercise==='plank'?'Hold duration':`${a.reps} Quality Reps`}><strong>{exercise==='plank'?holdTime(a.holdMs??0):String(a.reps).padStart(2,'0')}</strong><span>{exercise==='plank'?'Hold':'Quality Reps'}</span></span></div>
       </>}
-      {showSetup && !paused && status !== 'error' && <div className="quick-setup" role="status" aria-label="Camera placement"><Placement exercise={exercise} view={view}/></div>}
+      {hasVideo && !demo && !paused && status!=='error' && <TargetGuide visible={targetState==='selecting'}/>}
       {status === 'loading' && !hasVideo && <div className="stage-overlay"><div className="loader"><Camera size={30}/></div><p role="status">{message}</p></div>}
-      {status === 'loading' && hasVideo && !showSetup && <div className="tracking-loading" role="status">Loading pose tracking…</div>}
+
       {paused && status !== 'error' && <div className="pause-indicator"><Pause size={26}/><span>Paused</span></div>}
       {status === 'error' && <div className={`camera-error ${hasVideo ? 'over-video' : ''}`}><VideoOff size={27}/><p role="alert">{message}</p><button className="primary-button" onClick={retry}><RotateCcw size={16}/> Try camera again</button></div>}
       {demo && <div className="demo-watermark">SYNTHETIC POSE · NO CAMERA</div>}
     </div>
     <div className="session-controls"><div><button className="secondary-button" disabled={!hasVideo && !demo} onClick={togglePause}>{paused ? <Play size={16}/> : <Pause size={16}/>} {paused ? 'Resume' : 'Pause'}</button><button className="end-button" onClick={end}><Square size={13} fill="currentColor"/> End</button></div></div>
-    {debug && <DebugPanel assessment={a} source={source.kind} cameraStatus={cameraStatus} demoStart={demoStart} retry={retry}/>}
+    {debug && <DebugPanel assessment={a} exercise={exercise} view={view} source={source.kind} cameraStatus={cameraStatus} demoStart={demoStart} retry={retry}/>}
   </section>;
 }

@@ -8,7 +8,7 @@ export function referenceVisual(p: Pose, id: ExerciseId, view: CameraView, a: As
   const reference: Pose[]=[];
   const paths: Point[][]=[];
   const length=(i:number,j:number)=>Math.hypot((p[i].x-p[j].x)*aspect,p[i].y-p[j].y);
-  if(!framing && !a.debug.validMovement) {
+  if(!framing && !a.debug.validMovement && !a.debug.coachingEnabled) {
     for(const flex of id==='plank'?[0]:[0,1,0]) {
       const ghost=p.map(v=>({...v,visibility:0}));
       for(const s of [0,1]) {

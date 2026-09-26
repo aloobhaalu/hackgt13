@@ -1,8 +1,9 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PoseLandmarker } from '@mediapipe/tasks-vision';
-import { TRACKING, type CameraView, type ExerciseId } from './config';
+import { TARGET, TRACKING, type CameraView, type ExerciseId } from './config';
 import type { SessionSource } from './camera';
-import { CoachEngine, choosePose, emptyAssessment } from './pose/engine';
+import { CoachEngine, emptyAssessment } from './pose/engine';
+import { TargetTracker, type TargetState } from './pose/targetTracker';
 import { drawPose } from './pose/draw';
 import { demoFrame } from './pose/demoFrame';
 import type { Pose } from './pose/types';
@@ -11,7 +12,8 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
   const videoRef = useRef<HTMLVideoElement>(null), canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<'loading' | 'running' | 'error'>('loading');
   const [message, setMessage] = useState('Waiting for camera permission');
-  const [hasVideo, setHasVideo] = useState(false), [showSetup, setShowSetup] = useState(false);
+  const [hasVideo, setHasVideo] = useState(false);
+  const [targetState,setTargetState]=useState<TargetState>('selecting');
   const [paused, setPaused] = useState(false), [assessment, setAssessment] = useState(emptyAssessment());
   const pausedRef = useRef(false), streamRef = useRef<MediaStream | null>(null);
   const togglePause = useCallback(() => setPaused(value => !value), []);
@@ -28,17 +30,17 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
   useEffect(() => {
     let disposed = false, raf = 0, model: PoseLandmarker | undefined;
     let lastInference = 0, lastFrame = -1, lastVideoAt = 0, lastTick = 0, elapsed = 0, wasPaused = false;
-    let introUntil = 0, setupTimer: ReturnType<typeof setTimeout> | undefined;
+    const target=new TargetTracker();
     let modelTimer: ReturnType<typeof setTimeout> | undefined;
     let pose: Pose = [], result = emptyAssessment();
-    const engine = new CoachEngine(exercise, view);
+    let engine = new CoachEngine(exercise, view);
     const release = source.kind === 'camera' ? source.camera.retain() : undefined;
     const fail = (text: string) => {
       if (disposed) return;
       cancelAnimationFrame(raf);
       result = engine.interrupt(text); setAssessment(result);
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      setMessage(text); setStatus('error'); setShowSetup(false);
+      setMessage(text); setStatus('error'); target.reset();setTargetState('selecting');
       model?.close(); model = undefined;
       // Keep an already available video visible, even if the model failed to load.
     };
@@ -49,7 +51,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
       if (!canvas) return;
       if (pausedRef.current) {
         if (!wasPaused) {
-          result = engine.interrupt(); setAssessment(result); wasPaused = true;
+          result = engine.interrupt(); setAssessment(result); wasPaused = true;pose=[];target.reset();setTargetState('selecting');
           canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
         }
         raf = requestAnimationFrame(tick); return;
@@ -59,20 +61,27 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
       const w = demo ? 720 : video?.videoWidth || 1280, h = demo ? 720 : video?.videoHeight || 720;
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       try {
-        if (now >= introUntil && now - lastInference >= TRACKING.inferenceIntervalMs) {
+        if (now - lastInference >= TRACKING.inferenceIntervalMs) {
           if (source.kind === 'demo') {
             const frame=demoFrame(exercise,view,elapsed/1000);
             const output = engine.update(frame.pose, now, 1, false, frame.world);
-            pose = output.pose; result = output.assessment;
+            pose = output.pose; result = output.assessment;setTargetState('locked');
           } else if (source.kind === 'camera' && video && model && video.readyState >= 2 && video.currentTime !== lastFrame) {
             lastFrame = video.currentTime; lastVideoAt = now;
             const detected = model.detectForVideo(video, now);
-            const selected = choosePose(detected.landmarks, exercise);
+            const selected = target.update(detected.landmarks, now, w/h);
+            setTargetState(selected.state);
+            // A fresh lock may be another person: discard the previous person's session metrics.
+            if(selected.acquired)engine=new CoachEngine(exercise,view);
             const world = selected.index === undefined ? undefined : detected.worldLandmarks[selected.index];
-            const output = engine.update(selected.pose, now, w / h, selected.ambiguous, world);
-            pose = output.pose; result = output.assessment;
-          } else if (!demo && now - lastVideoAt > 1000) {
-            pose = []; result = engine.interrupt('Waiting for fresh camera frames');
+            if(selected.pose) {
+              const output = engine.update(selected.pose, now, w / h, false, world);
+              pose = output.pose; result = output.assessment;
+            } else {
+              pose=[];result=engine.interrupt('Target person not reliably matched');
+            }
+          } else if (!demo && now - lastVideoAt > TARGET.maxFrameGapMs) {
+            pose = []; result = engine.interrupt('Waiting for fresh camera frames');setTargetState(target.update([],now,w/h).state);
           }
           lastInference = now;
           setAssessment(result);
@@ -103,9 +112,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
         await video.play();
         if (disposed) return;
         // Display camera immediately. Model loading never hides the live video.
-        setHasVideo(true); setShowSetup(true); setMessage('Loading pose tracking');
-        introUntil = performance.now() + TRACKING.setupOverlayMs;
-        setupTimer = setTimeout(() => { if (!disposed) setShowSetup(false); }, TRACKING.setupOverlayMs);
+        setHasVideo(true);setTargetState('selecting');setMessage('Loading pose tracking');
 
         const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');
         if (disposed) return;
@@ -142,12 +149,12 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
     void boot();
     const video = videoRef.current;
     return () => {
-      disposed = true; cancelAnimationFrame(raf); clearTimeout(setupTimer); clearTimeout(modelTimer);
+      disposed = true; cancelAnimationFrame(raf); clearTimeout(modelTimer);
       streamRef.current?.getVideoTracks().forEach(track => { track.onended = null; });
       streamRef.current = null;
       if (video) { video.pause(); video.srcObject = null; }
       model?.close(); release?.();
     };
   }, [exercise, source, view]);
-  return { videoRef, canvasRef, status, message, hasVideo, showSetup, paused, togglePause, assessment };
+  return { videoRef, canvasRef, status, message, hasVideo, targetState, paused, togglePause, assessment };
 }

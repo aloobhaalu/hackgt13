@@ -1,3 +1,7 @@
+import { FEEDBACK } from '../config';
+import { alignmentText, holdTime } from './scoreDisplay';
+import { ScoreWindow } from './scoreWindow';
+import { emptyAssessment } from './engine';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CoachEngine, distance } from './engine';
@@ -34,12 +38,12 @@ for (const world of [false, true]) test(`calibrate, descend, hold, and rise usin
     const a = engine.update(p, ms, 1, false, world ? worldPose(p) : undefined).assessment;
     const d = a.debug.squat!; states.add(d.state);
     if (a.score !== null) {
-      scored++; assert.equal(d.state, 'HOLDING'); assert.ok(d.holdConfirmationMs >= 400);
+      scored++; assert.ok(['DESCENDING','HOLDING','ASCENDING'].includes(d.state)); if(d.state==='HOLDING')assert.ok(d.holdConfirmationMs>=400);
       assert.ok(a.score >= 0 && a.score <= 100); assert.equal(a.squatVisual?.reference.length, 0);
       assert.ok(d.baseline); assert.ok(d.baseline.leg > 0); assert.ok(d.baseline.confidence >= 0.45);
     } else assert.equal(a.corrections?.length ?? 0, 0);
     if (ms < 2000) assert.equal(d.baselineDetected, false);
-    if (ms > 8500) assert.equal(a.score, null);
+    if (ms > 10100) assert.equal(a.score, null);
     reps = a.reps;
   }
   assert.ok(scored > 20); assert.equal(reps, 1);
@@ -51,7 +55,7 @@ test('shallow and leaning holds show simultaneous body-relative targets', () => 
   for (let ms = 0; ms < 7500; ms += 65) {
     const p = squatPose(movement(ms, 0.73), ms > 3100 ? 55 : 2);
     const output = engine.update(p, ms), a = output.assessment;
-    if (a.debug.squat?.state !== 'HOLDING') { assert.equal(a.score, null); assert.ok((a.corrections ?? []).every(c => c.id === 'torso')); continue; }
+    if (a.debug.squat?.state !== 'HOLDING') { assert.ok((a.corrections ?? []).every(c => c.id === 'torso')); continue; }
     const depth = a.corrections?.find(c => c.id === 'depth'), torso = a.corrections?.find(c => c.id === 'torso');
     if (depth && torso) {
       both = true; assert.ok(a.score! < 100);
@@ -69,7 +73,7 @@ for (const world of [false, true]) test(`torso guidance works before hold confir
     const flex = ms < 2600 ? 0 : Math.min(0.5, (ms - 2600) / 3500);
     const p = squatPose(flex, ms > 3100 && ms < 5500 ? 90 : 2);
     const a = engine.update(p, ms, 1, false, world ? worldPose(p) : undefined).assessment;
-    assert.equal(a.score, null); assert.equal(a.reps, 0);
+    assert.equal(a.reps, 0);
     if (a.debug.squat?.state === 'DESCENDING') {
       if (ms < 5500 && a.corrections?.some(c => c.id === 'torso')) {
         guided = true; assert.ok(a.ready); assert.ok(a.debug.squat.activeCorrections.includes('torso'));
@@ -120,13 +124,16 @@ test('seated, static crouched, dancing, waving, and knee-only motion never produ
   }
 });
 
-test('standing still and a brief pass through the bottom never confirm a hold', () => {
-  const engine = new CoachEngine('squat');
+test('a continuous squat scores and counts after returning upright without requiring a bottom pause', () => {
+  const engine = new CoachEngine('squat'); let reps=0,scored=false;
   for (let ms = 0; ms < 8500; ms += 65) {
     const f = ms < 2600 ? 0 : ms < 4200 ? ease((ms - 2600) / 1600) : ms < 5800 ? 1 - ease((ms - 4200) / 1600) : 0;
     const a = engine.update(squatPose(f), ms).assessment;
-    assert.equal(a.score, null); assert.equal(a.reps, 0); assert.equal(a.corrections?.length ?? 0, 0);
+    if(ms<2600)assert.equal(a.score,null);
+    if(ms<5800)assert.equal(a.reps,0);
+    scored ||= a.score!==null; reps=a.reps;
   }
+  assert.ok(scored);assert.equal(reps,1);
 });
 
 test('visibility loss hides score and corrections immediately and requires hold reconfirmation', () => {
@@ -287,13 +294,13 @@ test('small hold wobble shows instability markers and clears them when stable', 
   assert.ok(unstable); assert.ok(cleared);
 });
 
-test('moving far out of a confirmed hold stops scoring before the next evaluation tick', () => {
+test('rising out of a hold keeps live scoring but does not count an unfinished ascent', () => {
   const engine = new CoachEngine('squat'); let held = false, exited = false;
   for (let ms = 0; ms < 7600; ms += 65) {
     const f = ms < 6200 ? movement(ms) : 0.3;
     const a = engine.update(squatPose(f), ms).assessment;
     if (ms < 6200) held ||= a.score !== null;
-    if (ms > 6500) { exited = true; assert.equal(a.score, null); assert.equal(a.corrections?.length ?? 0, 0); }
+    if (ms > 6500) { exited = true; assert.equal(a.debug.state,'ASCENDING');assert.notEqual(a.score,null);assert.equal(a.reps,0); }
   }
   assert.ok(held); assert.ok(exited);
 });
@@ -319,7 +326,7 @@ test('scale, translation, and aspect preserve hold recognition and scoring', () 
   }
 });
 
-test('reference preserves measured segments and remains visible outside HOLDING', () => {
+test('reference preserves measured segments and yields to valid visual coaching', () => {
   const p = squatPose(0.7), ghosts = squatReference(p, 1);
   assert.equal(ghosts.length, 3);
   for (const ghost of ghosts) {
@@ -329,7 +336,8 @@ test('reference preserves measured segments and remains visible outside HOLDING'
   const engine = new CoachEngine('squat');
   for (let ms = 0; ms < 4700; ms += 65) {
     const a = engine.update(squatPose(movement(ms)), ms).assessment;
-    if (a.debug.squat?.state !== 'FRAME_INVALID' && a.debug.squat?.state !== 'HOLDING') assert.equal(a.squatVisual?.reference.length, 3);
+    if (a.debug.squat?.coachingEnabled) assert.equal(a.squatVisual?.reference.length, 0);
+    else if(a.debug.squat?.state!=='FRAME_INVALID') assert.equal(a.squatVisual?.reference.length, 3);
   }
 });
 
@@ -342,4 +350,37 @@ test('world source changes, stale frames and interruptions cannot carry a hold s
     const result = kind === 'pause' ? evaluator.invalidate('Paused') : evaluator.update(p, kind === 'gap' ? 10000 : 6400, 1, 0);
     assert.equal(result.score, null); assert.equal(result.corrections.length, 0);
   }
+});
+
+test('squat live phases precede complete quality reps; poor and interrupted cycles never count',()=>{
+  for(const mode of ['good','poor','interrupted','incomplete']) {
+    const engine=new CoachEngine('squat');let last=engine.interrupt(),ready=false;const phases=new Set<string>();
+    for(let ms=0;ms<10600;ms+=65) {
+      const f=mode==='incomplete'?movement(ms,.4):movement(ms);
+      const p=squatPose(f,mode==='poor'&&ms>3000&&ms<9200?85:2+20*f);
+      if(mode==='interrupted'&&ms>3700&&ms<3900)for(const i of [27,28])p[i].visibility=.1;
+      last=engine.update(p,ms).assessment;
+      if(ms>2100&&ms<2500){assert.equal(alignmentText(last),'Ready');ready=true;}
+      if(last.score!==null)phases.add(last.debug.state!);
+      if(ms<9500)assert.equal(last.reps,0);
+      if(mode==='interrupted'&&ms>3700&&ms<3900)assert.equal(alignmentText(last),'\u2014');
+    }
+    assert.ok(ready);
+    if(mode==='good'){for(const state of ['DESCENDING','HOLDING','ASCENDING'])assert.ok(phases.has(state));assert.equal(last.reps,1);}
+    else assert.equal(last.reps,0,`${mode}: ${last.debug.lastRepScore}`);
+    if(mode==='poor'){assert.equal(last.debug.completedCycles,1);assert.ok(last.debug.lastRepScore!<FEEDBACK.qualityRepThreshold);}
+  }
+});
+
+test('display preserves low measured values including zero and score windows are throttled',()=>{
+  const window=new ScoreWindow(),base=emptyAssessment();
+  for(const score of [0,20,100]) {
+    window.reset();const measured=window.update(score,0,200);
+    assert.equal(measured,score);assert.equal(alignmentText({...base,score:measured}),`${score}%`);
+    assert.equal(window.update(100-score,100,200),measured);
+    assert.equal(window.update(null,110,200),null);
+  }
+  assert.equal(alignmentText({...base,scoreStatus:'ready'}),'Ready');
+  assert.equal(alignmentText(base),'\u2014');
+  assert.equal(holdTime(61234),'1:01');
 });

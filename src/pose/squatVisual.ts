@@ -39,7 +39,7 @@ export class SquatVisuals {
     const d = a.debug.squat;
     const missing = a.debug.landmarks.some(p => p.required && (!p.inFrame || p.visibility < EXERCISES.squat.visibility));
     const framing = missing || !pose.length || d?.state === 'FRAME_INVALID';
-    const needsReference = d?.state !== 'HOLDING' || !d.trackingReliable;
+    const needsReference = !d?.coachingEnabled || !d.trackingReliable;
     return { reference: !framing && needsReference ? squatReference(pose, aspect) : [], recovery: [], recoveryPose: [], framing };
   }
 }

@@ -7,6 +7,8 @@ export type Correction = {
 export type ScoreComponent = { id: string; value: number | null; limit: number; error: number; score: number | null };
 export type DebugData = {
   exercise?: string; view?: string; state?: string; viewValid?: boolean;
+  coachingEnabled?: boolean; scoringEnabled?: boolean; scoreUpdatedAt?: number | null;
+  completedCycles?: number; lastRepScore?: number | null;
   squat?: SquatDebug;
   landmarks: { index: number; name: string; visibility: number; inFrame: boolean; required: boolean }[];
   angles: Record<string, number>;
@@ -19,6 +21,8 @@ export type DebugData = {
 };
 export type SquatState = 'FRAME_INVALID' | 'CALIBRATING_STANDING' | 'DESCENDING' | 'HOLDING' | 'ASCENDING' | 'EXIT';
 export type SquatDebug = {
+  scoreUpdatedAt?: number | null; completedCycles?: number; lastRepScore?: number | null;
+  coachingEnabled?: boolean;
   state: SquatState; source: 'world' | 'normalized' | null;
   kneeAngle: number | null; hipAngle: number | null; torsoTilt: number | null;
   hipDrop: number | null; hipVelocity: number | null; kneeVelocity: number | null;
@@ -33,6 +37,7 @@ export type SquatDebug = {
 };
 export type Assessment = {
   ready: boolean; confidence: number; reason: string; score: number | null;
+  scoreStatus?: 'ready' | 'uncertain' | 'live'; holdMs?: number;
   reps: number; phase: 'Ready' | 'Lower' | 'Hold' | 'Rise' | 'Curl' | 'Release' | 'Pull' | 'Return';
   correction: Correction | null; confirmed: boolean;
   corrections?: Correction[];

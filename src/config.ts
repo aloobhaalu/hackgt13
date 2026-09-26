@@ -2,10 +2,25 @@ export const BRAND = { name: 'FormFlow', tagline: 'See your form.\nFind your flo
 export type ExerciseId = 'squat' | 'curl' | 'plank';
 export type CameraView = 'side' | 'front';
 export const VIEW = { frontMinSpread: 0.65, sideMaxSpread: 0.6, confirmMs: 400 };
+export const TARGET = {
+  acquireMs: 500, lostMs: 900, fadeMs: 400,
+  visibility: 0.55, minTorso: 0.09, centerRadius: 0.32,
+  maxMatchDistance: 0.65, maxScaleRatio: 1.45, matchMargin: 0.2,
+  acquisitionMargin: 0.15, maxFrameGapMs: 350,
+};
+export const FEEDBACK = {
+  correctionConfirmMs: 200, issueEnter: 0.04, issueRelease: 0.015,
+  scoreChangeMin: 2, scoreWindowMs: 350,
+  scoreIntervalMs: { squat: 200, curl: 200, plank: 200 },
+  qualityRepThreshold: 82,
+};
 export const FRONT_SQUAT = {
   baselineMs: 1500, baselineRange: 0.025, uprightKnee: 155, minDrop: 0.08,
   kneeBend: 12, holdMs: 400, holdRange: 0.025, returnDrop: 0.04,
-  stanceMin: 0.8, stanceMax: 1.8, kneeTrack: 0.28, symmetry: 0.12, balance: 0.25,
+  stanceHipMin: 1.1, stanceShoulderMin: 0.65, stanceShoulderMax: 1.1, stanceTolerance: 0.02,
+  toeVisibility: 0.75, toeOutMin: 10, toeOutMax: 35, toeOutTarget: 20, toePenaltyRange: 25,
+  toeLengthMin: 0.07, toeLengthMax: 0.35, toeForwardMin: 0.025,
+  kneeTrack: 0.28, kneeDirectionOffsetMax: 0.15, symmetry: 0.12, balance: 0.25,
   stability: 0.015, maxFootTravel: 0.25, timeoutMs: 14000,
 };
 
@@ -30,6 +45,7 @@ export const EXERCISES = {
     holdWeights: { depth: 0.5, torso: 0.3, stability: 0.2 },
     // Squat classifier: distances/speeds below are normalized by baseline leg length.
     startKneeMin: 150, startHipMin: 150, startTorsoMax: 25,
+    setupHipMin: 95, setupTorsoMax: 75,
     baselineHoldMs: 1500, baselineHipRange: 0.035,
     baselineHipSpeed: 0.08, baselineKneeSpeed: 14,
     sideShoulderRatioMax: 0.58, sideHipRatioMax: 0.5, // Allow a slightly angled profile.
@@ -55,8 +71,9 @@ export const EXERCISES = {
     name: 'Standing Dumbbell Bicep Curl', short: 'Dumbbell curl', angle: 'Front view recommended', recommendedView: 'front',
     phaseStart: 150, phaseEnd: 65,
     maxLean: 12, elbowDrift: 0.38, asymmetry: 28,
-    readyMs: 500, movementBend: 18, phaseMs: 180, timeoutMs: 10000,
+    readyMs: 500, movementBend: 18, movementRise: 0.06, phaseMs: 180, timeoutMs: 10000,
     maxSpeed: 220, upperArmDrift: 0.2, stability: 0.035,
+    handSideways: 0.32, backwardForearm: 0.15,
   },
   plank: {
     name: 'High Plank', short: 'High plank', angle: 'Side view recommended', recommendedView: 'side',
@@ -85,4 +102,3 @@ export const TRACKING = {
   perfectFrames: 8,           // All observable metrics accepted before 100 is possible.
   setupOverlayMs: 2600,
 };
-
