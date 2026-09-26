@@ -66,8 +66,10 @@ export function useCoach(exercise: ExerciseId, source: SessionSource) {
             pose = output.pose; result = output.assessment;
           } else if (source.kind === 'camera' && video && model && video.readyState >= 2 && video.currentTime !== lastFrame) {
             lastFrame = video.currentTime; lastVideoAt = now;
-            const selected = choosePose(model.detectForVideo(video, now).landmarks);
-            const output = engine.update(selected.pose, now, w / h, selected.ambiguous);
+            const detected = model.detectForVideo(video, now);
+            const selected = choosePose(detected.landmarks);
+            const world = selected.index === undefined ? undefined : detected.worldLandmarks[selected.index];
+            const output = engine.update(selected.pose, now, w / h, selected.ambiguous, world);
             pose = output.pose; result = output.assessment;
           } else if (!demo && now - lastVideoAt > 1000) {
             pose = []; result = engine.interrupt('Waiting for fresh camera frames');

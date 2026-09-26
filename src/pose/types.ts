@@ -6,6 +6,7 @@ export type Correction = {
 };
 export type ScoreComponent = { id: string; value: number | null; limit: number; error: number; score: number | null };
 export type DebugData = {
+  squat?: SquatDebug;
   landmarks: { index: number; name: string; visibility: number; inFrame: boolean; required: boolean }[];
   angles: Record<string, number>;
   components: ScoreComponent[];
@@ -13,6 +14,16 @@ export type DebugData = {
   validMovement: boolean;
   rawScore: number | null;
   stableFrames: number;
+};
+export type SquatState = 'FRAME_INVALID' | 'WAITING_FOR_START_POSE' | 'DESCENDING' | 'BOTTOM' | 'ASCENDING' | 'VALID_REP' | 'NOT_SQUAT_MOVEMENT';
+export type SquatDebug = {
+  state: SquatState; source: 'world' | 'normalized' | null;
+  kneeAngle: number | null; hipAngle: number | null; torsoTilt: number | null;
+  hipDrop: number | null; hipVelocity: number | null; kneeVelocity: number | null;
+  baselineDetected: boolean; sideOn: boolean; reason: string;
+  leftKneeAngle: number | null; rightKneeAngle: number | null;
+  shoulderRatio: number | null; hipRatio: number | null;
+  trackingReliable: boolean; rotateSideways: boolean; footPoints: number;
 };
 export type Assessment = {
   ready: boolean; confidence: number; reason: string; score: number | null;
