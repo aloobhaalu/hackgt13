@@ -1,11 +1,11 @@
 import type { RecapDiagnostics, RecapReason } from '../src/recap/diagnostics';
 import { createGeminiPayload } from '../src/recap/payload';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Plugin } from 'vite';
 import { localRecap, parseRecap, type Recap } from '../src/recap/content';
 import { parseSummary, type SessionSummary } from '../src/recap/summary';
 
-type Settings={apiKey?:string;model?:string;fetcher?:typeof fetch;timeoutMs?:number;report?:(diagnostics:RecapDiagnostics)=>void};
+export type RecapSettings={apiKey?:string;model?:string;fetcher?:typeof fetch;timeoutMs?:number;report?:(diagnostics:RecapDiagnostics)=>void};
+type Settings=RecapSettings;
 export async function generateRecap(summary:SessionSummary,settings:Settings):Promise<Recap> {
   const fallback=localRecap(summary);
   type Result={recap:Recap;diagnostics:RecapDiagnostics};
@@ -55,10 +55,4 @@ export function recapHandler(settings:Settings) {
       reply(200,recap);
     } catch {if(!res.writableEnded)reply(400,{error:'Invalid aggregate summary'});}
   };
-}
-
-/** Node-only Vite dev/preview middleware. Nothing here enters the browser bundle. */
-export function recapPlugin(settings:Settings):Plugin {
-  const handler=recapHandler(settings);
-  return {name:'optional-session-recap',configureServer(server){server.middlewares.use(handler);},configurePreviewServer(server){server.middlewares.use(handler);}};
 }

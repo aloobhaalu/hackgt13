@@ -1,0 +1,24 @@
+[Unit]
+Description=RepReady local production server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=repready
+Group=repready
+WorkingDirectory=/opt/repready
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/repready/repready.env
+ExecStart=/usr/bin/node /opt/repready/dist-server/index.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -133,7 +133,7 @@ To optionally enable Gemini locally:
 2. Configure `GEMINI_API_KEY` and, if needed, `GEMINI_MODEL` with a structured-output-capable model available to your project. Never use a `VITE_` prefix for the key.
 3. Restart `npm run dev`, or build and run `npm run preview`.
 
-The repository had no application API server. The small `server/recap.ts` adapter runs only in Vite's Node dev/preview process and is imported only by `vite.config.ts`. It reads unprefixed server environment values; the key is never placed in the browser bundle. Static deployments remain fully functional with the local recap. A production host can mount the exported `recapHandler` behind its own same-origin Node server and secret environment; do not expose a public key-bearing proxy without your hosting access/rate controls.
+The shared Node-only handler is `server/recap.ts`. `server/viteRecap.ts` attaches it to Vite for development/preview; the standalone production server mounts it directly without Vite middleware. `npm run build` generates the public frontend in `dist/` and the separate server bundle in `dist-server/`. `npm start` serves both the frontend and `/api/session-recap` on `127.0.0.1:${PORT}`, default 3000. Production reads `GEMINI_API_KEY` and optional `GEMINI_MODEL` from the Node process environment only; it does not automatically load `.env.local`. The key is not compiled into either bundle. The Nginx template limits recap requests to 6/minute per client IP with a burst of 5; rejected requests still use the client fallback.
 
 At most one Gemini request is made per End action, after the strict aggregate allowlist validates the payload. Requests contain text JSON only, with a 2.5-second server deadline. The requested JSON has exactly `headline` and `tips`. Gemini may select only short, exercise-specific predefined phrases supported by the measured issue categories; the server and client reject extra fields, long tips, unsupported claims and unknown phrases. Rep counts, hold times and scores always come directly from local metrics. The deterministic fallback ranks confirmed issues by episode count multiplied by mean severity (minimum severity weight 0.1), then count and peak severity for ties. Empty sessions receive neutral exercise-specific text without invented performance claims. No-key and synthetic-demo sessions make no Gemini call. The server does not log or persist summaries, and responses are marked `no-store`.
 
@@ -167,8 +167,199 @@ API references: [Google's server-side key guidance](https://ai.google.dev/gemini
 
 Frames and landmarks stay in browser memory. Session recap counters also live only in memory; when Gemini is configured, only the ended-session aggregate summary is sent through the same-origin server endpoint to Gemini. No frames, images, video, coordinates, identity, or account data are included. Camera startup downloads MediaPipe WASM from jsDelivr and the pose model from Google; Google Fonts provides typography. Those asset requests never contain video or poses. Camera access requires localhost or HTTPS. Self-host these assets for offline camera use.
 
-`npm run build` produces static `dist/` files suitable for HTTPS hosting. Static-only hosting uses the deterministic local recap; the optional Gemini endpoint needs a Node server. No deployment is configured. Rename the brand in `src/config.ts` and metadata in `index.html`.
+`npm run build` produces `dist/` plus `dist-server/index.mjs`; keep both directories together for production. Only `dist/` is publicly served. Deploy with the Node server and HTTPS reverse proxy below, rather than a static-only host. There is no database or account service. Rename the brand in `src/config.ts` and metadata in `index.html`.
 
 Tests cover DOM card/retry/debug interactions, camera ownership, framing/recovery, movement gating, metric scores, and canvas arrow/target commands. DOM tests simulate permission responses; they do not replace a physical-webcam or rendered-browser check.
 
 Squat entry simplification was informed by [Gym-AI-Trainer](https://github.com/gopalpatil15/Gym-AI-Trainer/blob/02b0e9572d3ae8f314cbebcb5147ae44e4d4cfd7/exercises/squat.py): smoothed pose measurements and a persistent bottom candidate. This implementation retains personal calibration and side-view checks; no source code was copied.
+
+
+## Manual Vultr deployment (Ubuntu + systemd + Nginx)
+
+Nothing is deployed automatically. Use your **existing** Ubuntu instance (these commands target Ubuntu 24.04 LTS), an SSH login with sudo, an existing domain/subdomain, and a repository URL accessible from that login. Commit and push this repository's changes from your computer first; never commit/copy `.env.local` to the public build. Node 24 LTS is recommended; the code also supports Node 22.12+. A small VM needs enough free memory for `npm ci` and the Vite build (about 2 GB is a practical starting point).
+
+The request path is `HTTPS browser -> Nginx :443 -> Node 127.0.0.1:3000`. Node serves `dist`, `/health` and `/api/session-recap`. Gemini is optional and receives only the existing allowlisted aggregates after End. Runtime needs no database, Vite process or account system.
+
+### 1. DNS and the Vultr dashboard (manual)
+
+- At the domain's **authoritative DNS provider**, add an **A** record for your chosen hostname pointing to this instance's public IPv4. Use Vultr DNS only if your domain already delegates to it. Add **AAAA** only if the instance's IPv6 and IPv6 firewall are configured; remove a stale AAAA record for this hostname.
+- In the existing instance's attached Vultr Firewall group, permit inbound TCP **80 and 443** from the Internet (IPv4, plus IPv6 if used). Do not expose 3000, 5173, or 4173. Preserve your management SSH access, ideally restricted to your own IP. No new instance or cloud resource is required.
+- Keep the current SSH session open while changing firewall rules. Only 80/443 need public application access; SSH remains a separate restricted management exception. Review existing firewall rules before removing any rules needed by other applications on the instance.
+
+### 2. SSH, prerequisites and source
+
+Connect from your computer, replacing the login/IP:
+
+```bash
+ssh YOUR_SSH_USER@YOUR_VULTR_IP
+```
+
+In that Ubuntu SSH shell, set these **non-secret** values. Replace the examples, including the branch if it is not `main`:
+
+```bash
+REPO_URL='https://github.com/YOUR_USER/YOUR_REPO.git'
+BRANCH='main'
+DOMAIN='repready.example.com'
+EMAIL='you@example.com'
+ADMIN_IP='YOUR_CURRENT_PUBLIC_IP'
+SSH_PORT='22'
+
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg git nginx ufw snapd dnsutils
+```
+
+Install Node 24 from NodeSource if a supported Node version is not already installed (do not replace an existing runtime used by other applications without checking them):
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_24.x -o /tmp/repready-node-setup.sh
+sudo bash /tmp/repready-node-setup.sh
+sudo apt-get install -y nodejs
+node --version
+npm --version
+```
+
+The supplied systemd unit uses `/usr/bin/node`. If you already manage Node at another system path, update `ExecStart` accordingly. Do not point the service at a per-user nvm directory under `/home`: the unit deliberately hides home directories.
+
+For the first installation:
+
+```bash
+sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0755 /opt/repready
+git clone --branch "$BRANCH" "$REPO_URL" /opt/repready
+cd /opt/repready
+npm ci
+npm test
+npm run build
+chmod -R a+rX dist dist-server
+```
+
+Use an SSH repository URL and your existing deploy credentials if the repository is private; do not put a repository token in these commands. Do not use `npm ci --omit=dev` before building: TypeScript, Vite and esbuild are build dependencies. Runtime uses the compiled server bundle and Node built-ins.
+
+### 3. Server-only environment and persistent process
+
+Create the unprivileged runtime user and a root-only secret file **outside the checkout**:
+
+```bash
+id -u repready >/dev/null 2>&1 || sudo useradd --system --user-group --home-dir /opt/repready --no-create-home --shell /usr/sbin/nologin repready
+sudo install -d -m 0700 /etc/repready
+sudo touch /etc/repready/repready.env
+sudo chown root:root /etc/repready/repready.env
+sudo chmod 0600 /etc/repready/repready.env
+sudoedit /etc/repready/repready.env
+```
+
+In the editor, enter these names, then paste your key **there**, not in a shell command, Git, browser source, or a `VITE_` variable:
+
+```dotenv
+PORT=3000
+GEMINI_API_KEY=
+GEMINI_MODEL=
+```
+
+Leaving `GEMINI_API_KEY` empty deliberately uses the local fallback. `GEMINI_MODEL` is an actual optional override consumed by the shared handler; leave it blank for the existing default or use a structured-output model enabled for your Google project. systemd reads this file as root and supplies it to Node; the runtime user does not need permission to read the file itself. The template sets `NODE_ENV=production`.
+
+```bash
+sudo install -m 0644 deploy/repready.service /etc/systemd/system/repready.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now repready
+sudo systemctl status repready --no-pager
+curl --fail http://127.0.0.1:3000/health
+sudo ss -ltn '( sport = :3000 )'
+```
+
+Expect `{"status":"ok"}` and only `127.0.0.1:3000`. If you change `PORT`, also change both upstream ports in `deploy/nginx.conf` and the health commands. After editing the environment file, use `sudo systemctl restart repready`. Routine diagnostics are `sudo journalctl -u repready -n 50 --no-pager`; the app logs startup/errors only, never keys, authorization headers, request bodies or full Gemini responses. `/health` contains no model, environment or session details.
+
+### 4. Nginx and host firewall
+
+Install the supplied domain-specific reverse proxy; keep existing unrelated sites intact:
+
+```bash
+sed "s/REPLACE_WITH_DOMAIN/${DOMAIN}/g" deploy/nginx.conf | sudo tee /etc/nginx/sites-available/repready >/dev/null
+sudo ln -sfn /etc/nginx/sites-available/repready /etc/nginx/sites-enabled/repready
+sudo nginx -t
+sudo systemctl enable --now nginx
+sudo systemctl reload nginx
+
+sudo ufw allow from "$ADMIN_IP" to any port "$SSH_PORT" proto tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw enable
+sudo ufw status numbered
+```
+
+Stop if `nginx -t` fails. Review UFW's listed rules: existing broad SSH/Node-port allows remain until you remove them. Keep restricted SSH working before removing a broad SSH rule. Match these rules in any attached Vultr firewall; neither firewall should expose the Node port. If UFW was already configured, preserve any necessary management rules before enabling it. Nginx forwards the original hostname so the recap handler's same-origin check works; `/api/session-recap` allows only the existing JSON aggregate schema and an 8 KB body, with no upload endpoint.
+
+### 5. Let's Encrypt and final checks
+
+Wait until DNS resolves to the Vultr instance and HTTP reaches this application:
+
+```bash
+dig +short A "$DOMAIN"
+dig +short AAAA "$DOMAIN"
+curl --fail "http://${DOMAIN}/health"
+```
+
+If Certbot is already installed and renewing other sites, use that installation. Otherwise install the recommended snap:
+
+```bash
+sudo snap install --classic certbot
+sudo /snap/bin/certbot --nginx -d "$DOMAIN" --redirect --agree-tos --non-interactive -m "$EMAIL"
+sudo /snap/bin/certbot renew --dry-run
+curl --fail "https://${DOMAIN}/health"
+curl -I "http://${DOMAIN}/"
+curl -I "https://${DOMAIN}/"
+```
+
+Certbot adds the TLS listener/certificate and HTTP-to-HTTPS redirect to the installed Nginx site. Keep port 80 reachable for HTTP certificate renewal. Do not overwrite that Certbot-edited live configuration with the original HTTP template on routine app updates.
+
+### Deployment checklist
+
+- [ ] Both Node health checks return only `{"status":"ok"}`; plain HTTP redirects to HTTPS after certificate setup.
+- [ ] `systemctl is-active repready` succeeds; `systemctl is-enabled repready` confirms reboot persistence. Nginx is active and certificate renewal dry-run passes.
+- [ ] Node listens on loopback only. Public application ingress is 80/443; management SSH is restricted. No key-bearing files are in `dist` or Git.
+- [ ] Visit `https://YOUR_DOMAIN` on your own computer/phone, allow camera permission for **that HTTPS hostname**, and try squat, curl and plank. The raw public-IP HTTP URL is not a valid production webcam test.
+- [ ] Check browser DevTools Network: live coaching uploads no frames/images/landmarks. End a real session: exactly one same-origin `POST /api/session-recap`, then the recap modal. Payload is aggregates only; inspect the existing D / `?debug=1` developer preview if needed.
+- [ ] With a blank key, End still shows a local recap. With a configured key, debug shows Gemini's safe outcome or a local fallback. No API error appears to normal users. Tests cover offline/slow/invalid Gemini; a model/key failure must not affect live exercise coaching.
+- [ ] The server permits outbound HTTPS for Gemini. The browser can fetch the existing MediaPipe assets and fonts. No video is sent in those asset downloads.
+
+### Updates, restarts and rollback
+
+For a normal code update, use a short maintenance window. Build artifacts are replaced in place, so stop the service before rebuilding. Run from `/opt/repready`, with the same deployment login; keep the old commit recorded:
+
+```bash
+cd /opt/repready
+PREVIOUS_COMMIT=$(git rev-parse HEAD)
+printf '%s\n' "$PREVIOUS_COMMIT" | sudo tee /etc/repready/previous-commit >/dev/null
+```
+
+Then, using your checked-out deployment branch:
+
+```bash
+sudo systemctl stop repready
+git pull --ff-only
+npm ci
+npm test
+npm run build
+chmod -R a+rX dist dist-server
+sudo systemctl start repready
+curl --fail http://127.0.0.1:3000/health
+```
+
+Stop on any failed command. If an update/build fails, leave the service stopped until the old version is restored. For rollback, restore the recorded commit (it must contain this production server):
+
+```bash
+cd /opt/repready
+sudo systemctl stop repready
+PREVIOUS_COMMIT=$(sudo cat /etc/repready/previous-commit)
+git switch --detach "$PREVIOUS_COMMIT"
+npm ci
+npm run build
+chmod -R a+rX dist dist-server
+sudo systemctl start repready
+curl --fail http://127.0.0.1:3000/health
+```
+
+The root-only environment, Nginx TLS configuration and certificates stay in place. Before a later update, switch back to your deployment branch with `git switch main` (or your actual branch). There are no database migrations. A configuration-only key/model change needs only `sudo systemctl restart repready`; do not paste environment output into logs or support requests.
+
+Reference setup: [Node LTS releases](https://nodejs.org/en/about/previous-releases), [NodeSource Ubuntu packages](https://github.com/nodesource/distributions/blob/master/DEV_README.md), [Nginx proxy directives](https://nginx.org/en/docs/http/ngx_http_proxy_module.html), and [Certbot Nginx instructions](https://certbot.eff.org/instructions?os=snap&ws=nginx).
