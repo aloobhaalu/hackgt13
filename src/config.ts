@@ -1,11 +1,19 @@
 export const BRAND = { name: 'FormFlow', tagline: 'See your form.\nFind your flow.' };
-export type ExerciseId = 'squat' | 'curl' | 'row';
+export type ExerciseId = 'squat' | 'curl' | 'plank';
+export type CameraView = 'side' | 'front';
+export const VIEW = { frontMinSpread: 0.65, sideMaxSpread: 0.6, confirmMs: 400 };
+export const FRONT_SQUAT = {
+  baselineMs: 1500, baselineRange: 0.025, uprightKnee: 155, minDrop: 0.08,
+  kneeBend: 12, holdMs: 400, holdRange: 0.025, returnDrop: 0.04,
+  stanceMin: 0.8, stanceMax: 1.8, kneeTrack: 0.28, symmetry: 0.12, balance: 0.25,
+  stability: 0.015, maxFootTravel: 0.25, timeoutMs: 14000,
+};
 
 // Prototype heuristics, not clinical or universal movement standards.
-// Angles are degrees. Curl/row distances use torso length; squats use baseline leg length.
+// Angles are degrees. Curl/plank distances use torso or body length; squats use baseline leg length.
 export const EXERCISES = {
   squat: {
-    name: 'Bodyweight squat', short: 'Squat', angle: 'Side profile',
+    name: 'Bodyweight squat', short: 'Squat', angle: 'Side view recommended', recommendedView: 'side',
     maxLean: 48, depthAngle: 115,
     visibility: 0.45,
     frameTolerance: 0.02, framingHoldMs: 500, framingLossMs: 500, landmarkSmoothing: 0.32,
@@ -44,14 +52,18 @@ export const EXERCISES = {
     depthPenaltyRange: 30, dropPenaltyRange: 0.2, torsoPenaltyRange: 25,
   },
   curl: {
-    name: 'Standing dumbbell curl', short: 'Dumbbell curl', angle: 'Front facing',
+    name: 'Standing Dumbbell Bicep Curl', short: 'Dumbbell curl', angle: 'Front view recommended', recommendedView: 'front',
     phaseStart: 150, phaseEnd: 65,
     maxLean: 12, elbowDrift: 0.38, asymmetry: 28,
+    readyMs: 500, movementBend: 18, phaseMs: 180, timeoutMs: 10000,
+    maxSpeed: 220, upperArmDrift: 0.2, stability: 0.035,
   },
-  row: {
-    name: 'Seated cable row', short: 'Seated cable row', angle: 'Side profile',
-    phaseStart: 145, phaseEnd: 80,
-    maxLean: 22, shoulderElevation: 0.18, elbowPath: 0.3,
+  plank: {
+    name: 'High Plank', short: 'High plank', angle: 'Side view recommended', recommendedView: 'side',
+    holdMs: 450, stability: 0.018, holdMotionMax: 0.055,
+    bodyHorizontalMax: 45, minBodySpan: 1.6, minKneeAngle: 125, minElbowAngle: 145,
+    hipOffset: 0.085, kneeOffset: 0.07, handOffset: 0.4,
+    frontDepthMin: 0.7, symmetry: 0.15, balance: 0.22,
   },
 } as const;
 
@@ -74,13 +86,3 @@ export const TRACKING = {
   setupOverlayMs: 2600,
 };
 
-// Excess beyond the accepted limit that produces a 70-point component penalty.
-export const SCORE_RANGES = {
-  torso: 20,
-  depth: 30,
-  stability: 0.25,
-  elbow: 0.35,
-  symmetry: 45,
-  shoulder: 0.18,
-  path: 0.4,
-};

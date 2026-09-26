@@ -26,7 +26,7 @@ function setup(query = '') {
   return { dom, window, root, calls: () => calls, deny: () => deny(Object.assign(new Error('Denied'), { name: 'NotAllowedError' })) };
 }
 
-test('all three complete cards, including canvas/title/arrow, request the camera in the same click', async () => {
+test('all three complete cards, including canvas/title/arrow, open view selection, then request camera synchronously', async () => {
   const ctx = setup();
   await act(async () => ctx.root.render(<StrictMode><App/></StrictMode>));
   const targets = ['canvas', 'h2', '.card-arrow'];
@@ -37,8 +37,11 @@ test('all three complete cards, including canvas/title/arrow, request the camera
     const before = ctx.calls();
     await act(async () => {
       target.dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true }));
-      assert.equal(ctx.calls(), before + 1, 'getUserMedia must run before any asynchronous work');
+      assert.equal(ctx.calls(), before, 'card does not request camera');
     });
+    assert.ok(ctx.window.document.querySelector('[role=dialog]'));
+    await act(async () => { (ctx.window.document.querySelectorAll('.view-choice')[index % 2] as HTMLElement).click(); assert.equal(ctx.calls(),before+1); });
+    assert.equal(ctx.window.document.querySelector('[role=dialog]'),null);
     assert.ok(ctx.window.document.querySelector('.camera-stage video'));
     assert.equal(ctx.window.document.querySelectorAll('.motion-diagram').length, 0, 'home animations must unmount');
     assert.equal(ctx.window.document.querySelector('.setup-page'), null);
@@ -53,6 +56,7 @@ test('denied permission has one retry action and retry directly requests again',
   const ctx = setup();
   await act(async () => ctx.root.render(<App/>));
   await act(async () => (ctx.window.document.querySelector('.exercise-card') as HTMLElement).click());
+  await act(async () => (ctx.window.document.querySelector('.view-choice') as HTMLElement).click());
   await act(async () => ctx.deny());
   const retry = ctx.window.document.querySelector('.camera-error button') as HTMLButtonElement;
   assert.equal(retry.textContent, ' Try camera again');
@@ -75,6 +79,21 @@ test('debug UI is absent by default, toggles with D, and can be enabled by query
   }
 });
 
+test('view picker recommends and focuses the exercise-specific view; Escape opens no camera', async () => {
+  const ctx=setup();
+  await act(async()=>ctx.root.render(<App/>));
+  assert.deepEqual(Array.from(ctx.window.document.querySelectorAll('.card-title h2')).map(n=>n.textContent),['Squat','Dumbbell curl','High plank']);
+  for(const [index,view] of ['Side View','Front View','Side View'].entries()) {
+    await act(async()=> (ctx.window.document.querySelectorAll('.exercise-card')[index] as HTMLElement).click());
+    assert.equal(ctx.window.document.activeElement?.getAttribute('aria-label'),view);
+    assert.equal(ctx.window.document.activeElement?.querySelector('small')?.textContent,'Recommended');
+    assert.equal(ctx.window.document.querySelectorAll('.view-choice small')[1]?.textContent,'Alternate view');
+    await act(async()=>ctx.window.document.activeElement?.dispatchEvent(new ctx.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+    assert.equal(ctx.window.document.querySelector('[role=dialog]'),null);assert.equal(ctx.calls(),0);
+  }
+  await act(async()=>ctx.root.unmount());ctx.dom.window.close();
+});
+
 test('permission success shows video before tracking loads; visual setup disappears automatically', async () => {
   const ctx = setup();
   let stopped = 0, playCalls = 0;
@@ -87,10 +106,12 @@ test('permission success shows video before tracking loads; visual setup disappe
   try {
     await act(async () => ctx.root.render(<StrictMode><App/></StrictMode>));
     await act(async () => (ctx.window.document.querySelector('.exercise-card') as HTMLElement).click());
+  await act(async () => (ctx.window.document.querySelector('.view-choice') as HTMLElement).click());
     assert.equal(playCalls, 1, 'StrictMode must not attach the stream twice');
     const video = ctx.window.document.querySelector('video') as HTMLVideoElement;
     assert.equal(video.srcObject, stream);
-    assert.equal(ctx.window.document.querySelector('.quick-setup'), null, 'squat startup has no written setup overlay');
+    assert.ok(ctx.window.document.querySelector('.quick-setup svg'));
+    assert.equal(ctx.window.document.querySelector('.quick-setup')?.textContent, '');
     assert.equal(ctx.window.document.querySelector('.stage-overlay'), null, 'model loading must not cover the video');
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 2700)); });
     assert.equal(ctx.window.document.querySelector('.quick-setup'), null);

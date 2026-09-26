@@ -6,9 +6,11 @@ export type Correction = {
 };
 export type ScoreComponent = { id: string; value: number | null; limit: number; error: number; score: number | null };
 export type DebugData = {
+  exercise?: string; view?: string; state?: string; viewValid?: boolean;
   squat?: SquatDebug;
   landmarks: { index: number; name: string; visibility: number; inFrame: boolean; required: boolean }[];
   angles: Record<string, number>;
+  rawAngles?: Record<string, number>;
   components: ScoreComponent[];
   reason: string;
   validMovement: boolean;
@@ -35,7 +37,7 @@ export type Assessment = {
   correction: Correction | null; confirmed: boolean;
   corrections?: Correction[];
   guidance?: string[];
-  squatVisual?: { reference: Pose[]; recovery: Correction[]; recoveryPose: Pose; framing: boolean };
+  squatVisual?: { reference: Pose[]; recovery: Correction[]; recoveryPose: Pose; framing: boolean; pathJoint?: number; paths?: Point[][] };
   framingWarning: boolean; debug: DebugData;
 };
 export const CONNECTIONS = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],[27,29],[29,31],[27,31],[28,30],[30,32],[28,32]];

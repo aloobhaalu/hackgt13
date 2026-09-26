@@ -19,6 +19,9 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.strokeStyle = color; ctx.lineWidth = lineWidth * size; ctx.stroke();
   };
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (c.id === 'hip-line' || c.id === 'knee-line') {
+    segment(toPixel(pose[c.anchor]), toPixel(pose[27 + (c.anchor - 11)]), '#8acfff66', 2);
+  }
   // Highlight this issue's affected segment and its target.
   segment(pivot, from, '#ffa26b', subtle ? 3 : 5);
   segment(pivot, target, '#b9f5aa45', subtle ? 5 : 15);
@@ -115,14 +118,27 @@ export function drawSquatVisual(ctx: CanvasRenderingContext2D, visual: NonNullab
     }
   }
   ctx.setLineDash([]);
-  if (visual.reference.length === 3) {
+  if (visual.paths?.length) {
+    const phase=(time%3600)/1800;
+    const progress=(1-Math.cos(Math.PI*(phase<1?phase:2-phase)))/2;
+    for(const path of visual.paths) {
+      ctx.globalAlpha=0.35;ctx.strokeStyle='#8acfff';ctx.lineWidth=1;
+      ctx.setLineDash([4,6]);ctx.lineDashOffset=-time/100;ctx.beginPath();
+      path.forEach((p,i)=>i===0?ctx.moveTo(p.x*width,p.y*height):ctx.lineTo(p.x*width,p.y*height));ctx.stroke();
+      const position=progress*(path.length-1),i=Math.min(Math.floor(position),path.length-2),t=position-i;
+      const from=path[i],to=path[i+1];
+      ctx.setLineDash([]);ctx.globalAlpha=0.7;ctx.fillStyle='#bcf6ac';
+      ctx.beginPath();ctx.arc((from.x+(to.x-from.x)*t)*width,(from.y+(to.y-from.y)*t)*height,4,0,Math.PI*2);ctx.fill();
+    }
+  } else if (visual.reference.length === 3) {
+    const j=visual.pathJoint ?? 23;
     const [start, bottom, end] = visual.reference;
     const phase = (time % 3600) / 1800;
-    const from = phase < 1 ? start[23] : bottom[23], to = phase < 1 ? bottom[23] : end[23];
+    const from = phase < 1 ? start[j] : bottom[j], to = phase < 1 ? bottom[j] : end[j];
     const t = (1 - Math.cos(Math.PI * (phase % 1))) / 2;
     ctx.globalAlpha = 0.35; ctx.strokeStyle = '#8acfff'; ctx.lineWidth = 1;
     ctx.setLineDash([4, 6]); ctx.lineDashOffset = -time / 100;
-    ctx.beginPath(); ctx.moveTo(start[23].x * width, start[23].y * height); ctx.lineTo(bottom[23].x * width, bottom[23].y * height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(start[j].x * width, start[j].y * height); ctx.lineTo(bottom[j].x * width, bottom[j].y * height); ctx.stroke();
     ctx.setLineDash([]); ctx.globalAlpha = 0.7; ctx.fillStyle = '#bcf6ac';
     ctx.beginPath(); ctx.arc((from.x + (to.x - from.x) * t) * width, (from.y + (to.y - from.y) * t) * height, 4, 0, Math.PI * 2); ctx.fill();
   }

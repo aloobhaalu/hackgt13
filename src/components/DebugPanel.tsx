@@ -1,5 +1,5 @@
 import type { Assessment } from '../pose/types';
-import { EXERCISES } from '../config';
+import { EXERCISES, FRONT_SQUAT, VIEW } from '../config';
 
 export default function DebugPanel({ assessment: a, source, cameraStatus, demoStart, retry }: {
   assessment: Assessment; source: 'camera' | 'demo'; cameraStatus: string;
@@ -9,6 +9,11 @@ export default function DebugPanel({ assessment: a, source, cameraStatus, demoSt
     <div className="debug-title"><h2>Developer diagnostics</h2><span>D to hide · {source === 'camera' ? 'REAL CAMERA' : 'SYNTHETIC DEMO'}</span></div>
     <dl className="debug-summary">
       <dt>Camera</dt><dd>{cameraStatus}</dd>
+      <dt>Exercise / view</dt><dd>{a.debug.exercise} / {a.debug.view}</dd>
+      <dt>Exercise state</dt><dd>{a.debug.state ?? 'FRAME_INVALID'}</dd>
+      <dt>Selected view confirmed</dt><dd>{String(a.debug.viewValid ?? false)}</dd>
+      <dt>Raw image angles</dt><dd><pre>{JSON.stringify(a.debug.rawAngles ?? {}, null, 2)}</pre></dd>
+      <dt>All corrections</dt><dd>{a.corrections?.map(c=>c.id).join(', ') || 'None'}</dd>
       <dt>Phase</dt><dd>{a.phase}</dd>
       <dt>Movement valid</dt><dd>{String(a.debug.validMovement)}</dd>
       <dt>Reason</dt><dd>{a.debug.reason}</dd>
@@ -40,7 +45,7 @@ export default function DebugPanel({ assessment: a, source, cameraStatus, demoSt
         <dt>Squat score status</dt><dd>{a.debug.squat.reason}</dd>
       </>}
     </dl>
-    {a.debug.squat && <details><summary>Squat thresholds — edit EXERCISES.squat in src/config.ts</summary><pre>{JSON.stringify(EXERCISES.squat, null, 2)}</pre></details>}
+<details><summary>Thresholds: src/config.ts</summary><pre>{JSON.stringify({exercises:EXERCISES,frontSquat:FRONT_SQUAT,views:VIEW}, null, 2)}</pre></details>
     <div className="debug-tables">
       <table><caption>Landmark confidence · * required for framing</caption><thead><tr><th>Landmark</th><th>Visibility</th><th>In frame</th></tr></thead><tbody>{a.debug.landmarks.map(p => <tr key={p.index}><td>{p.name}{p.required ? ' *' : ''}</td><td>{p.visibility.toFixed(2)}</td><td>{p.inFrame ? 'Yes' : 'No'}</td></tr>)}</tbody></table>
       <div><table><caption>Joint angles · degrees</caption><thead><tr><th>Measurement</th><th>Value</th></tr></thead><tbody>{Object.entries(a.debug.angles).map(([name, value]) => <tr key={name}><td>{name}</td><td>{value.toFixed(1)}</td></tr>)}</tbody></table>
