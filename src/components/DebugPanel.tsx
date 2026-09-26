@@ -1,0 +1,25 @@
+import type { Assessment } from '../pose/types';
+
+export default function DebugPanel({ assessment: a, source, cameraStatus, demoStart, retry }: {
+  assessment: Assessment; source: 'camera' | 'demo'; cameraStatus: string;
+  demoStart: () => void; retry: () => void;
+}) {
+  return <aside className="debug-panel" aria-label="Developer pose diagnostics">
+    <div className="debug-title"><h2>Developer diagnostics</h2><span>D to hide · {source === 'camera' ? 'REAL CAMERA' : 'SYNTHETIC DEMO'}</span></div>
+    <dl className="debug-summary">
+      <dt>Camera</dt><dd>{cameraStatus}</dd>
+      <dt>Phase</dt><dd>{a.phase}</dd>
+      <dt>Movement valid</dt><dd>{String(a.debug.validMovement)}</dd>
+      <dt>Reason</dt><dd>{a.debug.reason}</dd>
+      <dt>Raw / smoothed score</dt><dd>{a.debug.rawScore?.toFixed(1) ?? '—'} / {a.score ?? '—'}</dd>
+      <dt>Accepted frames</dt><dd>{a.debug.stableFrames}</dd>
+      <dt>Correction</dt><dd>{a.correction?.id ?? 'None'}</dd>
+    </dl>
+    <div className="debug-tables">
+      <table><caption>Landmark confidence · * required for framing</caption><thead><tr><th>Landmark</th><th>Visibility</th><th>In frame</th></tr></thead><tbody>{a.debug.landmarks.map(p => <tr key={p.index}><td>{p.name}{p.required ? ' *' : ''}</td><td>{p.visibility.toFixed(2)}</td><td>{p.inFrame ? 'Yes' : 'No'}</td></tr>)}</tbody></table>
+      <div><table><caption>Joint angles · degrees</caption><thead><tr><th>Measurement</th><th>Value</th></tr></thead><tbody>{Object.entries(a.debug.angles).map(([name, value]) => <tr key={name}><td>{name}</td><td>{value.toFixed(1)}</td></tr>)}</tbody></table>
+        <table><caption>Pose-derived score components</caption><thead><tr><th>Metric</th><th>Value / limit</th><th>Score</th></tr></thead><tbody>{a.debug.components.map(c => <tr key={c.id}><td>{c.id}</td><td>{c.value?.toFixed(2) ?? 'Unavailable'} / {c.limit}</td><td>{c.score?.toFixed(1) ?? '—'}</td></tr>)}</tbody></table></div>
+    </div>
+    <div className="debug-actions"><button className="secondary-button" onClick={source === 'camera' ? demoStart : retry}>{source === 'camera' ? 'Switch to synthetic demo' : 'Switch to real camera'}</button><small>Experimental thresholds, not medical standards.</small></div>
+  </aside>;
+}
