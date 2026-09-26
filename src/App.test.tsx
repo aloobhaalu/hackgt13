@@ -1,5 +1,4 @@
-import RepCounter from './components/RepCounter';
-import { emptyAssessment } from './pose/engine';
+import HoldTimer from './components/HoldTimer';
 import { createGeminiPayload } from './recap/payload';
 import { parseSummary } from './recap/summary';
 import { localRecap } from './recap/content';
@@ -235,7 +234,7 @@ test('End stops coaching before one request and keeps every exercise in a modal 
       assert.equal(ctx.window.document.activeElement,modal.querySelector('button'));
       assert.equal(modal.querySelector('.recap-payload'),null);assert.ok(modal.querySelector('.recap-totals.is-empty'));
       if(exercise==='plank'){assert.match(modal.textContent!,/Best Hold/);assert.match(modal.textContent!,/Total Hold Time/);assert.doesNotMatch(modal.textContent!,/Reps/);}
-      else {assert.match(modal.textContent!,/Total Reps/);assert.match(modal.textContent!,/Quality Reps/);}
+      else {assert.match(modal.textContent!,/Average Form Alignment/);assert.match(modal.textContent!,/Best Form Alignment/);assert.doesNotMatch(modal.textContent!,/Reps/);}
       await act(async()=>ctx.window.dispatchEvent(new ctx.window.KeyboardEvent('keydown',{key:'d',bubbles:true})));
       const preview=modal.querySelector('.recap-payload pre')!;assert.ok(preview);
       assert.deepEqual(JSON.parse(preview.textContent!),createGeminiPayload(payload));
@@ -291,20 +290,20 @@ test('Done clears pending recap permanently; debug query previews the sanitized 
 });
 
 
-test('squat and curl show completed reps even below the Quality Rep threshold; plank remains a timer',async()=>{
+test('plank keeps its hold timer without repetition statistics',async()=>{
   const ctx=setup();
   try {
-    for(const exercise of ['squat','curl','plank'] as const){const a=emptyAssessment();a.debug.completedCycles=2;a.reps=0;a.holdMs=61000;
-      await act(async()=>ctx.root.render(<RepCounter exercise={exercise} assessment={a}/>));
-      const counter=ctx.window.document.querySelector('.rep-count')!;
-      assert.equal(counter.querySelector('strong')?.textContent,exercise==='plank'?'1:01':'02');
-      if(exercise==='plank')assert.doesNotMatch(counter.textContent!,/Reps/);else {assert.match(counter.textContent!,/0 Quality Reps/);assert.match(counter.getAttribute('aria-label')!,/2 Reps/);}
+    for(const [ms,expected] of [[0,'0:00'],[61000,'1:01']] as const){
+      await act(async()=>ctx.root.render(<HoldTimer durationMs={ms}/>));
+      const timer=ctx.window.document.querySelector('.hold-timer')!;
+      assert.equal(timer.querySelector('strong')?.textContent,expected);
+      assert.equal(timer.getAttribute('aria-label'),'Hold duration');assert.doesNotMatch(timer.textContent!,/Reps/);
     }
   }finally{await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
 });
 
 for(const exercise of ['squat','curl'] as const)for(const view of ['front','side'] as const)
-test(`camera pipeline with landmark fixtures: ${view} ${exercise} reaches the visible counter despite brief tracking dips`,async()=>{
+test(`camera pipeline with landmark fixtures: ${view} ${exercise} keeps live alignment without counters across brief tracking dips`,async()=>{
   const ctx=setup(),oldResolver=FilesetResolver.forVisionTasks,oldCreate=PoseLandmarker.createFromOptions;
   const frames=new Map<number,FrameRequestCallback>();let next=0,now=0;
   let poses:Pose[]=[],worlds:Pose[]=[];
@@ -325,7 +324,7 @@ test(`camera pipeline with landmark fixtures: ${view} ${exercise} reaches the vi
     const choice=Array.from(ctx.window.document.querySelectorAll('.view-choice')).find(b=>b.textContent!.toLowerCase().includes(`${view} view`))!;
     await act(async()=> (choice as HTMLElement).click());
     for(const selector of ['video','.pose-canvas'])assert.equal(ctx.window.getComputedStyle(ctx.window.document.querySelector(selector)!).transform,'scaleX(-1)');
-    const counts:number[]=[];let sawScore=false;
+    let sawScore=false;
     for(now=65;now<11000;now+=65) {
       const f=repFrame(exercise,view,repMotion(now));
       const jointDip=now>=5500&&now<5565,targetDip=now>=8500&&now<8565;
@@ -335,16 +334,13 @@ test(`camera pipeline with landmark fixtures: ${view} ${exercise} reaches the vi
       const alignment=ctx.window.document.querySelector('.alignment-indicator')?.textContent;
       sawScore ||= !!alignment?.includes('%');
       if(jointDip||targetDip)assert.ok(!alignment?.includes('%'),'no score during uncertain tracking');
-      const counter=ctx.window.document.querySelector('.rep-count');
-      if(counter) {const count=Number(counter.querySelector('strong')!.textContent);assert.ok(count===0||count===1||count===2);assert.ok(!counts.length||count>=counts.at(-1)!);counts.push(count);}
+      assert.equal(ctx.window.document.querySelector('.rep-count, .hold-timer'),null);
     }
-    assert.ok(sawScore);assert.equal(counts.at(-1),2);
-    const counter=ctx.window.document.querySelector('.rep-count')!;
-    assert.match(counter.getAttribute('aria-label')!,/2 Reps/);
-    assert.notEqual(ctx.window.getComputedStyle(counter).transform,'scaleX(-1)','counter text stays readable');
+    assert.ok(sawScore);
+    assert.notEqual(ctx.window.getComputedStyle(ctx.window.document.querySelector('.alignment-indicator')!).transform,'scaleX(-1)');
     await act(async()=> (Array.from(ctx.window.document.querySelectorAll('button')).find(b=>b.textContent?.trim()==='Pause') as HTMLElement).click());
     await act(async()=> (Array.from(ctx.window.document.querySelectorAll('button')).find(b=>b.textContent?.trim()==='Resume') as HTMLElement).click());
     for(;now<12000;now+=65){const f=repFrame(exercise,view,0);poses=[f.pose];worlds=[f.world];const queued=[...frames.values()];frames.clear();await act(async()=>queued.forEach(fn=>fn(now)));}
-    assert.match(ctx.window.document.querySelector('.rep-count')!.getAttribute('aria-label')!,/2 Reps/,'reacquisition keeps the completed session count');
+    assert.equal(ctx.window.document.querySelector('.rep-count, .hold-timer'),null);
   }finally{FilesetResolver.forVisionTasks=oldResolver;PoseLandmarker.createFromOptions=oldCreate;await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
 });

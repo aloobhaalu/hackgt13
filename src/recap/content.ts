@@ -44,12 +44,12 @@ export function recapOptions(summary:SessionSummary) {
   const copy=COPY[summary.exercise];
   if(issues.length)return {headlines:[copy[issues[0]].headline],tips:[...new Set([...issues.map(k=>copy[k].tips[0]),...issues.flatMap(k=>copy[k].tips.slice(1))])]};
   if(summary.exercise==='curl') {
-    if(summary.rejectedMovements)return {headlines:[summary.completedReps?'Keep the curl path consistent':'No complete curl movement confirmed'],tips:[]};
+    if(summary.rejectedMovements)return {headlines:[summary.validScoreSamples?'Keep the curl path consistent':'No curl movement confirmed'],tips:[]};
     if(!summary.validScoreSamples)return {headlines:['Not enough curl movement to summarize'],tips:[]};
-    return {headlines:[summary.completedReps?'Curl session complete':'No completed curls recorded'],tips:[]};
+    return {headlines:['Curl session complete'],tips:[]};
   }
   if(summary.exercise==='plank')return {headlines:[summary.totalHoldMs>0?'Plank session complete':'No confirmed plank hold recorded'],tips:[]};
-  return {headlines:[summary.completedReps?'Squat session complete':summary.validScoreSamples?'No completed squats recorded':'Not enough squat movement to summarize'],tips:[]};
+  return {headlines:[summary.validScoreSamples?'Squat session complete':'Not enough squat movement to summarize'],tips:[]};
 }
 export function localRecap(summary:SessionSummary):Recap {
   const options=recapOptions(summary);

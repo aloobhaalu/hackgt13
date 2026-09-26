@@ -4,7 +4,6 @@ import type { Correction, Pose } from './types';
 const C = EXERCISES.squat;
 type Foot = { heel: number; ankle: number; length: number; toeX: number; toeY: number; leg: number };
 
-/** Optional side-view image evidence. Never infer ground contact from occluded feet. */
 export class HeelLiftEvaluator {
   private baseline: Foot | null = null;
   private calibration: { at: number; foot: Foot }[] = [];
@@ -56,7 +55,7 @@ export class HeelLiftEvaluator {
     const b = this.baseline;
     if (!b || !coaching) return this.unavailable(b ? 'Waiting for recognized squat' : 'Foot baseline unavailable');
     if (Math.hypot(f.toeX - b.toeX, f.toeY - b.toeY) / b.leg > C.heelToeTravelMax || Math.abs(f.length / b.length - 1) > C.heelFootScaleChange) return this.unavailable('Foot moved or changed orientation');
-    // Toe-relative rise rejects whole-foot translation; ankle rise corroborates the heel.
+    // Toe-relative rise rejects whole-foot translation, ankle rise corroborates the heel
     const lift = f.heel - b.heel;
     this.samples.push(lift);
     if (this.samples.length > C.featureWindow) this.samples.shift();

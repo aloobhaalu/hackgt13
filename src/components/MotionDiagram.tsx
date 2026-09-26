@@ -13,15 +13,14 @@ export default function MotionDiagram({exercise,large=false}:{exercise:ExerciseI
       const ctx=canvas.getContext('2d');if(!ctx)return;
       canvas.width=720;canvas.height=600;
       ctx.clearRect(0,0,720,600);
-      // A movement diagram, using the same synthetic landmarks as the demo.
+      // A movement diagram, using the same synthetic landmarks as the demo
       const pose=demoPose(exercise,reduce?1.7:time/1000+1.2,false);
       if(exercise==='plank') {
-        // Draw the floor in the same coordinate system as the contact landmarks,
-        // so responsive canvas scaling cannot leave hands floating above it.
+        // Keep the floor aligned with the hands and toes when the canvas resizes
         const floor=pose[15].y*600;
         ctx.beginPath();ctx.moveTo(720*.14,floor);ctx.lineTo(720*.94,floor);
         ctx.strokeStyle='#a5b99b99';ctx.lineWidth=2;ctx.stroke();
-        // Preview-only head placement: extend the spine toward the crown.
+        // Preview-only head placement: extend the spine toward the crown
         const shoulder={x:(pose[11].x+pose[12].x)/2,y:(pose[11].y+pose[12].y)/2};
         const dx=(pose[27].x-pose[11].x)*720,dy=(pose[27].y-pose[11].y)*600;
         const length=Math.hypot(dx,dy);

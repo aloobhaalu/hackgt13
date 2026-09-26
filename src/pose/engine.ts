@@ -14,7 +14,7 @@ export function angle(a: Point, b: Point, c: Point) {
 }
 const emptyDebug = (reason: string): DebugData => ({ landmarks: [], angles: {}, components: [], reason, validMovement: false, rawScore: null, stableFrames: 0 });
 export const emptyAssessment = (reason = 'Looking for movement'): Assessment => ({
-  ready: false, confidence: 0, reason, score: null, reps: 0, phase: 'Ready',
+  ready: false, confidence: 0, reason, score: null, phase: 'Ready',
   correction: null, confirmed: false, framingWarning: false, debug: emptyDebug(reason),
 });
 const NAMES: Record<number, string> = { 0: 'Head', 7: 'Left ear', 8: 'Right ear', 29: 'Left heel', 30: 'Right heel', 31: 'Left foot', 32: 'Right foot', 11: 'Left shoulder', 12: 'Right shoulder', 13: 'Left elbow', 14: 'Right elbow', 15: 'Left wrist', 16: 'Right wrist', 23: 'Left hip', 24: 'Right hip', 25: 'Left knee', 26: 'Right knee', 27: 'Left ankle', 28: 'Right ankle' };
@@ -32,7 +32,8 @@ export function choosePose(poses: Pose[], id: ExerciseId = 'squat') {
   return { pose: ranked[0]?.pose, index: ranked[0]?.index, ambiguous: ranked.length > 1 && ranked[1].weight > ranked[0].weight * TRACKING.ambiguityRatio };
 }
 
-/** Require relevant landmarks; a side profile may naturally hide the far chain. */
+// Check the landmarks this exercise needs
+// A side view can use the near side when the far side is hidden
 export function framing(p: Pose, id: ExerciseId, view: CameraView = 'side') {
   const cfg = id === 'squat' ? EXERCISES.squat : TRACKING;
   const chain = id === 'curl' ? [11,13,15,23] : id === 'plank' ? [11,13,15,23,25,27,31] : [11,23,25,27];
@@ -51,7 +52,7 @@ export function framing(p: Pose, id: ExerciseId, view: CameraView = 'side') {
   return { ok: !missing.length, confidence, side, outside, landmarks, missing };
 }
 
-/** Stateful, memory-only analysis. No timers or synthetic data generate scores here. */
+// Keep coaching in memory and score only the movement we can see
 export class CoachEngine {
   private squat = new SquatEvaluator();
   private squatVisuals = new SquatVisuals();
@@ -59,9 +60,6 @@ export class CoachEngine {
   private framedAt: number | null = null;
   private lostAt: number | null = null;
   private acquired = false;
-  private reps = 0;
-  private completed = 0;
-  private lastRepScore:number|null=null;
   private lastSquatCycle:DebugData['squatCycle'];
   private briefLossAt:number|null=null;
   private lastReliableAt:number|null=null;
@@ -77,11 +75,10 @@ export class CoachEngine {
     this.squatVisuals.reset();
     this.resetEvaluation(); this.framedAt = null; this.lostAt = null;
     this.acquired = false; this.smooth = []; this.side = null;
-    const result = { ...emptyAssessment(reason), reps: this.reps };
-    if (this.id === 'squat' && this.view === 'side') { const squat = this.squat.invalidate(reason); result.reps = squat.reps; result.debug.squat = squat.debug;result.debug.squatCycle=squat.debug.cycle; }
+    const result = { ...emptyAssessment(reason) };
+    if (this.id === 'squat' && this.view === 'side') { const squat = this.squat.invalidate(reason); result.debug.squat = squat.debug;result.debug.squatCycle=squat.debug.cycle; }
     if(this.id==='squat'&&this.view==='front')result.debug.squatCycle=this.views.squatCycle();
     if(this.id==='curl')result.debug.curlCycle=this.views.curlCycle();
-    result.debug.completedCycles=this.completed;result.debug.lastRepScore=this.lastRepScore;
     return result;
   }
 
@@ -93,9 +90,9 @@ export class CoachEngine {
     let output:{pose:Pose;assessment:Assessment}|undefined;
     if(this.id!=='plank' && !ambiguous && this.acquired && !reliable && this.lastReliableAt!==null) {
       if(this.briefLossAt===null){this.briefLossAt=now;this.views.pauseEvidence();this.squat.pauseEvidence();}
-      if(now-this.briefLossAt<TRACKING.repGraceMs && now-this.lastReliableAt<=EXERCISES.squat.maxFrameGapMs) {
-        const assessment={...emptyAssessment('Tracking briefly uncertain'),reps:this.reps};
-        assessment.debug.landmarks=frame.landmarks;assessment.debug.reason='Rep paused: waiting for reliable landmarks';
+      if(now-this.briefLossAt<TRACKING.recoveryGraceMs && now-this.lastReliableAt<=EXERCISES.squat.maxFrameGapMs) {
+        const assessment={...emptyAssessment('Tracking briefly uncertain')};
+        assessment.debug.landmarks=frame.landmarks;assessment.debug.reason='Coaching paused: waiting for reliable landmarks';
         assessment.debug.trackingGapMs=now-this.briefLossAt;
         assessment.debug.squatCycle=this.lastSquatCycle;
         output={pose:[],assessment};
@@ -104,7 +101,7 @@ export class CoachEngine {
     if(!output && this.briefLossAt!==null) {
       const old=this.lastReliablePose;
       const scale=old[11]&&old[23]?Math.hypot((old[11].x-old[23].x)*aspect,old[11].y-old[23].y):0;
-      const continuous=reliable && !ambiguous && now-this.briefLossAt<TRACKING.repGraceMs && this.lastReliableAt!==null && now-this.lastReliableAt<=EXERCISES.squat.maxFrameGapMs && scale>0 && required.every(i=>old[i] && Math.hypot((raw![i].x-old[i].x)*aspect,raw![i].y-old[i].y)/scale<=TRACKING.repResumeTravel);
+      const continuous=reliable && !ambiguous && now-this.briefLossAt<TRACKING.recoveryGraceMs && this.lastReliableAt!==null && now-this.lastReliableAt<=EXERCISES.squat.maxFrameGapMs && scale>0 && required.every(i=>old[i] && Math.hypot((raw![i].x-old[i].x)*aspect,raw![i].y-old[i].y)/scale<=TRACKING.recoveryTravel);
       if(!continuous)this.interrupt('Tracking/view confidence lost');
       this.briefLossAt=null;
     }
@@ -125,11 +122,7 @@ export class CoachEngine {
     }
     if(this.id==='squat'&&this.view==='front')output.assessment.debug.squatCycle??=this.views.squatCycle();
     if(this.id==='curl')output.assessment.debug.curlCycle??=this.views.curlCycle();
-    this.reps=output.assessment.reps;
     this.lastSquatCycle=output.assessment.debug.squatCycle;
-    this.completed=Math.max(this.completed,output.assessment.debug.completedCycles??0);
-    if(output.assessment.debug.lastRepScore!==undefined)this.lastRepScore=output.assessment.debug.lastRepScore;
-    output.assessment.debug.completedCycles=this.completed;output.assessment.debug.lastRepScore=this.lastRepScore;
     return output;
   }
 
@@ -142,11 +135,12 @@ export class CoachEngine {
       const sustained = now - this.lostAt >= tracking.framingLossMs;
       if (sustained) { this.acquired = false; this.side = null; }
       this.framedAt = null; this.smooth = []; this.resetEvaluation();
-      // Confidence loss suppresses scores immediately. Reframing is only shown for sustained cropping.
+      // Hide scores right away when confidence drops
+      // Show the framing guide only if cropping persists
       const warning = sustained && frame.outside && !ambiguous;
       const reason = ambiguous ? 'Multiple prominent poses' : !raw ? 'No reliable pose detected' : frame.missing.map(i => NAMES[i]).join(', ') + (frame.outside ? ': outside frame' : ': low confidence');
       const squat = this.id === 'squat' && this.view === 'side' ? (ambiguous ? this.squat.invalidate(reason) : this.squat.suspend(reason, now)) : undefined;
-      return { pose: raw ?? [], assessment: { ...emptyAssessment('Tracking uncertain'), reps: squat?.reps ?? this.reps, confidence: frame.confidence, framingWarning: warning, debug: { ...emptyDebug(reason), landmarks: frame.landmarks, squat: squat?.debug } } };
+      return { pose: raw ?? [], assessment: { ...emptyAssessment('Tracking uncertain'), confidence: frame.confidence, framingWarning: warning, debug: { ...emptyDebug(reason), landmarks: frame.landmarks, squat: squat?.debug } } };
     }
     this.lostAt = null;
     this.framedAt ??= now;
@@ -155,16 +149,16 @@ export class CoachEngine {
       const old = this.smooth[i];
       return old ? { ...p, x: old.x + (p.x - old.x) * smoothing, y: old.y + (p.y - old.y) * smoothing } : { ...p };
     });
-    const base = { ...emptyAssessment('Checking frame'), confidence: frame.confidence, reps: this.reps, debug: { ...emptyDebug('Acquiring required landmarks for 500 ms'), landmarks: frame.landmarks } };
+    const base = { ...emptyAssessment('Checking frame'), confidence: frame.confidence, debug: { ...emptyDebug('Acquiring required landmarks for 500 ms'), landmarks: frame.landmarks } };
     if (!this.acquired) {
-      if (this.id === 'squat' && this.view === 'side') { const squat = this.squat.invalidate(base.debug.reason); base.debug.squat = squat.debug; base.reps = squat.reps; }
+      if (this.id === 'squat' && this.view === 'side') { const squat = this.squat.invalidate(base.debug.reason); base.debug.squat = squat.debug; }
       return { pose: this.smooth, assessment: base };
     }
 
     if (this.id === 'squat' && this.view === 'side' && this.side !== null && ![11, 23, 25, 27].every(i => visible(raw[i + this.side!], tracking))) {
       const result = this.squat.suspend('Camera-facing landmarks briefly occluded', now);
       if (result.debug.state === 'FRAME_INVALID') this.side = null;
-      return { pose: this.smooth, assessment: { ...base, reps: result.reps, reason: result.debug.reason,
+      return { pose: this.smooth, assessment: { ...base, reason: result.debug.reason,
         debug: { ...base.debug, squat: result.debug, reason: result.debug.reason } } };
     }
     const sideChain=this.id==='curl'?[11,13,15,23]:this.id==='plank'?[11,13,15,23,25,27,31]:[11,23,25,27];
@@ -175,7 +169,7 @@ export class CoachEngine {
     this.side ??= frame.side;
     if (this.id === 'squat' && this.view === 'side') {
       const result = this.squat.update(raw, now, aspect, this.side, world);
-      // Anchor squat guidance to the same smoothed skeleton that is rendered.
+      // Anchor squat guidance to the same smoothed skeleton that is rendered
       result.corrections = result.corrections.map(cue => {
       if (cue?.id === 'depth' || cue?.id === 'heel-lift') {
         return { ...cue, target: { ...cue.target, x: this.smooth[cue.joint].x,
@@ -194,10 +188,10 @@ export class CoachEngine {
       return { pose: this.smooth, assessment: {
         ...base, ready: result.debug.trackingReliable && state !== 'FRAME_INVALID', reason: result.debug.reason,
         scoreStatus:result.score!==null?'live':result.debug.trackingReliable && result.debug.sideOn && result.debug.kneeAngle!==null && result.debug.kneeAngle>=EXERCISES.squat.startKneeMin?'ready':'uncertain',
-        reps: result.reps, score: result.score, correction: result.correction, confirmed: result.confirmed,
+        score: result.score, correction: result.correction, confirmed: result.confirmed,
         corrections: result.corrections,
         phase: state === 'HOLDING' ? 'Hold' : state === 'DESCENDING' ? 'Lower' : state === 'ASCENDING' ? 'Rise' : 'Ready',
-        debug: { ...base.debug, completedCycles:result.debug.completedCycles,lastRepScore:result.debug.lastRepScore,squat: result.debug, reason: result.debug.reason, validMovement: result.evaluating,
+        debug: { ...base.debug, squat: result.debug, reason: result.debug.reason, validMovement: result.evaluating,
           rawScore: result.rawScore, stableFrames: result.stableFrames, components: result.components,
           angles: { knee: result.debug.kneeAngle ?? 0, hip: result.debug.hipAngle ?? 0, torsoLean: result.debug.torsoTilt ?? 0 } },
       } };
@@ -209,7 +203,6 @@ export class CoachEngine {
     const assessment=this.views.update(this.smooth,now,aspect,this.side,base,world?this.worldSmooth:undefined);
     const rp=raw.map(p=>({...p,x:p.x*aspect}));
     assessment.debug.rawAngles={leftElbow:angle(rp[11],rp[13],rp[15]),rightElbow:angle(rp[12],rp[14],rp[16]),leftKnee:angle(rp[23],rp[25],rp[27]),rightKnee:angle(rp[24],rp[26],rp[28])};
-    this.reps=assessment.reps;
     return {pose:this.smooth,assessment};
   }
 }

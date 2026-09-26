@@ -1,7 +1,7 @@
 import { FRONT_SQUAT as F } from '../config';
 import type { Pose } from './types';
 
-/** Conservative projected foot direction, not a measurement of anatomical toe angle. */
+// Conservative projected foot direction, not a measurement of toe angle
 export function frontFoot(p: Pose, side: number, leg: number, imageWidth: number) {
   const ankle=27+side,heel=29+side,toe=31+side;
   if(![ankle,heel,toe].every(i=>p[i] && p[i].visibility>=F.toeVisibility && Number.isFinite(p[i].x) && Number.isFinite(p[i].y) && p[i].x>=0 && p[i].x<=imageWidth && p[i].y>=0 && p[i].y<=1)) return null;

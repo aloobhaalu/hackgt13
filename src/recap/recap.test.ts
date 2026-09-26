@@ -1,4 +1,3 @@
-import { RepQuality } from '../pose/repQuality';
 import type { RecapDiagnostics } from './diagnostics';
 import { createGeminiPayload } from './payload';
 import test from 'node:test';
@@ -15,13 +14,13 @@ import type { Assessment } from '../pose/types';
 const fixture=()=>new SessionMetrics('curl','side','camera').snapshot();
 const response=(data:unknown)=>new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
 function measured(score=80,ids=['torso','hip-shift']):Assessment {
-  const a=emptyAssessment();return {...a,score,reps:1,reason:'Evaluating measured pose',corrections:ids.map((id,i)=>({id,label:'',joint:11,anchor:23,target:{x:.5,y:.5,visibility:1},severity:.4+i*.2,kind:'translation'})),debug:{...a.debug,exercise:'curl',viewValid:true,coachingEnabled:true,scoringEnabled:true,state:'CURLING_UP',completedCycles:2,angles:{backwardLean:30},curlPartial:{count:1,severityTotal:.6,maxSeverity:.6}}};
+  const a=emptyAssessment();return {...a,score,reason:'Evaluating measured pose',corrections:ids.map((id,i)=>({id,label:'',joint:11,anchor:23,target:{x:.5,y:.5,visibility:1},severity:.4+i*.2,kind:'translation'})),debug:{...a.debug,exercise:'curl',viewValid:true,coachingEnabled:true,scoringEnabled:true,state:'CURLING_UP',angles:{backwardLean:30},curlPartial:{count:1,severityTotal:.6,maxSeverity:.6}}};
 }
 
 test('aggregate summaries count episodes, not frames; average only valid measured phases',()=>{
   const metrics=new SessionMetrics('curl','side','camera');
   for(let at=0;at<1000;at+=50)metrics.observe(measured(),at);
-  let s=metrics.snapshot();assert.equal(s.completedReps,2);assert.equal(s.qualityReps,1);assert.equal(s.validScoreSamples,5);assert.equal(s.averageAlignment,80);assert.equal(s.bestAlignment,80);
+  let s=metrics.snapshot();assert.equal(s.validScoreSamples,5);assert.equal(s.averageAlignment,80);assert.equal(s.bestAlignment,80);
   assert.equal(s.issues.backwardLean.count,1);assert.equal(s.issues.hipDrive.count,1);assert.equal(s.issues.partialRange.count,1);
   const bad=measured(100);bad.debug.scoringEnabled=false;bad.debug.coachingEnabled=false;bad.debug.viewValid=false;
   metrics.observe(bad,1200);assert.equal(metrics.snapshot().validScoreSamples,5);
@@ -30,9 +29,9 @@ test('aggregate summaries count episodes, not frames; average only valid measure
   assert.ok(!JSON.stringify(s).match(/landmarks|target|visibility|image|video|identity/));
 });
 
-test('new target segments preserve session totals without duplicating evaluator counters',()=>{
+test('new target segments preserve session totals without duplicating issue episodes',()=>{
   const metrics=new SessionMetrics('curl','front','camera');metrics.observe(measured(),0);metrics.newEvaluator();metrics.observe(measured(),1000);
-  const s=metrics.snapshot();assert.equal(s.completedReps,4);assert.equal(s.qualityReps,2);assert.equal(s.issues.partialRange.count,2);assert.equal(s.issues.backwardLean.count,0);
+  const s=metrics.snapshot();assert.equal(s.issues.partialRange.count,2);assert.equal(s.issues.backwardLean.count,0);
 });
 
 test('invalid movements count once until a plausible setup returns; uncertain tracking does not count',()=>{
@@ -111,22 +110,22 @@ test('HTTP boundary works with no API key and rejects extra data before reaching
 
 function exerciseFrame(exercise:'squat'|'plank',ids:string[]=[],state='HOLDING',ms=0,score=80):Assessment {
   const a=measured(score,ids);
-  return {...a,holdMs:ms,reps:exercise==='plank'?0:1,debug:{...a.debug,exercise,state,curlPartial:undefined,completedCycles:exercise==='plank'?0:2,angles:{hipLineOffset:-.2}}};
+  return {...a,holdMs:ms,debug:{...a.debug,exercise,state,curlPartial:undefined,angles:{hipLineOffset:-.2}}};
 }
 
-test('squat setup and movement issues retain confirmed episodes and real rep/score totals',()=>{
+test('squat setup and movement issues retain confirmed episodes and real alignment summaries',()=>{
   const metrics=new SessionMetrics('squat','front','camera');
   const setup=exerciseFrame('squat',['stance-wide-27','stance-wide-28','toe-direction-31']);
-  setup.score=null;setup.reps=0;setup.debug.completedCycles=0;setup.debug.scoringEnabled=false;
+  setup.score=null;setup.debug.scoringEnabled=false;
   for(let t=0;t<1000;t+=50)metrics.observe(setup,t);
-  let s=metrics.snapshot();assert.equal(s.issues.stanceTooWide.count,1);assert.equal(s.issues.toeDirection.count,1);assert.equal(s.validScoreSamples,0);assert.equal(s.completedReps,0);
+  let s=metrics.snapshot();assert.equal(s.issues.stanceTooWide.count,1);assert.equal(s.issues.toeDirection.count,1);assert.equal(s.validScoreSamples,0);
   metrics.observe(exerciseFrame('squat',['depth','torso','stability-23','stability-25'],'DESCENDING',0,20),1000);
   metrics.observe(exerciseFrame('squat',['depth'],'ASCENDING',0,80),1200);
-  s=metrics.snapshot();assert.equal(s.completedReps,2);assert.equal(s.qualityReps,1);assert.equal(s.averageAlignment,50);assert.equal(s.bestAlignment,80);
+  s=metrics.snapshot();assert.equal(s.averageAlignment,50);assert.equal(s.bestAlignment,80);
   assert.equal(s.issues.shallowDepth.count,1);assert.equal(s.issues.torsoLean.count,1);assert.equal(s.issues.instability.count,1);
   const unreliable=exerciseFrame('squat',['knee-track-25']);unreliable.debug.viewValid=false;metrics.observe(unreliable,1400);
   assert.equal(metrics.snapshot().issues.kneeTracking.count,0);assert.equal(metrics.snapshot().validScoreSamples,2);
-  metrics.newEvaluator();metrics.observe(exerciseFrame('squat'),1600);s=metrics.snapshot();assert.equal(s.completedReps,4);assert.equal(s.qualityReps,2);assert.ok(parseSummary(s));
+  metrics.newEvaluator();metrics.observe(exerciseFrame('squat'),1600);s=metrics.snapshot();assert.ok(parseSummary(s));
 });
 
 test('plank aggregates only confirmed holds, excludes setup scores and never includes reps',()=>{
@@ -162,6 +161,10 @@ test('plank low hips and front-view setup issues use their own supported phrases
 test('every exercise/view uses a strict aggregate schema and only its own measured phrases',()=>{
   for(const exercise of ['squat','curl','plank'] as const)for(const view of ['front','side'] as const) {
     const s=new SessionMetrics(exercise,view,'camera').snapshot();assert.ok(parseSummary(s));
+    for(const key of ['completedReps','qualityReps','reps']) {
+      assert.ok(!(key in s));assert.equal(parseSummary({...s,[key]:0}),null);
+      assert.ok(!JSON.stringify(createGeminiPayload(s)).includes(key));
+    }
     for(const key of ['video','frames','landmarks','identity','poseHistory'])assert.equal(parseSummary({...s,[key]:[]}),null);
     assert.equal(parseSummary({...s,issues:{...s.issues,unknown:{count:1,averageSeverity:.5,maxSeverity:.5}}}),null);
     for(const issue of ISSUE_KEYS[exercise]) {
@@ -172,6 +175,23 @@ test('every exercise/view uses a strict aggregate schema and only its own measur
       assert.ok(parseRecap(localRecap(measured),measured));
     }
     if(exercise!=='curl')assert.equal(parseRecap({headline:'Focus on full lowering',tips:['Lower fully before starting the next curl.']},s),null);
+  }
+});
+
+test('alignment summaries survive reacquisition without needing a completed movement count',()=>{
+  for(const exercise of ['squat','curl'] as const)for(const view of ['front','side'] as const) {
+    const metrics=new SessionMetrics(exercise,view,'camera');
+    const first=measured(20,[]);first.debug.exercise=exercise;first.debug.curlPartial=undefined;
+    metrics.observe(first,0);
+    assert.equal(metrics.snapshot().enoughValidData,true);
+    metrics.newEvaluator();
+    const waiting=emptyAssessment();waiting.debug.exercise=exercise;metrics.observe(waiting,1000);
+    assert.equal(metrics.snapshot().averageAlignment,20);
+    const next=measured(80,[]);next.debug.exercise=exercise;next.debug.curlPartial=undefined;metrics.observe(next,2000);
+    const summary=metrics.snapshot();
+    assert.equal(summary.validScoreSamples,2);assert.equal(summary.averageAlignment,50);assert.equal(summary.bestAlignment,80);
+    assert.ok(parseSummary(summary));assert.match(localRecap(summary).headline,/session complete/);
+    assert.equal(waiting.score,null);
   }
 });
 
@@ -225,23 +245,4 @@ test('debug provenance distinguishes an actual Gemini result, keyless fallback a
   await generateRecap(s,{apiKey:'test-only',fetcher:(async()=>response({candidates:[]})) as typeof fetch,report:d=>{server=d;}});assert.deepEqual(server,{source:'local',geminiCalled:true,reason:'invalid_output'});
   await endedRecap(s,(async()=>new Promise<Response>(()=>{})) as typeof fetch,5,d=>{client=d;})();
   assert.deepEqual(client,{source:'local',geminiCalled:null,reason:'timeout'});
-});
-
-
-test('completed movement is separate from missing quality samples',()=>{
-  const quality=new RepQuality();quality.sample(95,'DESCENDING',0);quality.sample(null,'ASCENDING',500);
-  assert.equal(quality.complete(1000,['DESCENDING','ASCENDING']),false);assert.equal(quality.completedCycles,1);assert.equal(quality.lastScore,null);
-  quality.sample(100,'DESCENDING',1200);assert.equal(quality.complete(1400,['DESCENDING','ASCENDING']),false);assert.equal(quality.completedCycles,1);
-});
-
-test('session counters survive reacquisition and display copies never feed totals back into evaluation',()=>{
-  for(const exercise of ['squat','curl'] as const)for(const view of ['front','side'] as const) {
-    const metrics=new SessionMetrics(exercise,view,'camera'),a=measured();a.debug.exercise=exercise;
-    metrics.observe(a,0);assert.equal(metrics.forDisplay(a).debug.completedCycles,2);assert.equal(metrics.forDisplay(a).reps,1);
-    metrics.newEvaluator();const waiting=emptyAssessment();waiting.debug.exercise=exercise;waiting.debug.completedCycles=0;
-    metrics.observe(waiting,1000);const visible=metrics.forDisplay(waiting);assert.equal(visible.debug.completedCycles,2);assert.equal(visible.reps,1);
-    assert.equal(waiting.debug.completedCycles,0);assert.equal(waiting.reps,0);
-    const next={...a,reps:1,debug:{...a.debug,completedCycles:1}};metrics.observe(next,2000);metrics.observe(next,2200);
-    assert.equal(metrics.forDisplay(next).debug.completedCycles,3);assert.equal(metrics.forDisplay(next).reps,2);
-  }
 });

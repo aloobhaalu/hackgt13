@@ -10,7 +10,7 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
   const from = toPixel(pose[c.joint]), target = toPixel(c.target), pivot = toPixel(pose[c.anchor]);
   const size = Math.max(1, Math.min(width, height) / 650);
   if (c.kind === 'instability') {
-    // This marks irregular motion, not a positional target to chase.
+    // This marks irregular motion, not a positional target to chase
     const radius = Math.max(5, Math.hypot(from.x - pivot.x, from.y - pivot.y) * 0.06);
     ctx.save(); ctx.strokeStyle = fault; ctx.lineWidth = (1+severity) * size;
     for (let ring = 0; ring < 2; ring++) {
@@ -27,7 +27,7 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
   ctx.globalAlpha=opacity;
   if(c.id.startsWith('stance-')) {
     const side=c.joint-27,dx=target.x-from.x;
-    // Foot placement highlights stay below the ankle; no orange shin/knee target.
+    // Foot placement highlights stay below the ankle, no orange shin/knee target
     for(const i of [29+side,31+side]) if(pose[i]?.visibility>=0.45) {
       const foot=toPixel(pose[i]);
       segment(from,foot,fault,(subtle?2:3)+severity*2);
@@ -37,7 +37,7 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
   if (c.id === 'hip-line' || c.id === 'knee-line') {
     segment(toPixel(pose[c.anchor]), toPixel(pose[27 + (c.anchor - 11)]), '#8acfff66', 2);
   }
-  // Highlight this issue's affected segment and its target.
+  // Highlight this issue's affected segment and its target
   segment(pivot, from, fault, (subtle ? 2 : 3)+severity*2);
   const targetPivot=c.targetAnchor?toPixel(c.targetAnchor):pivot;
   segment(targetPivot, target, '#b9f5aa45', subtle ? 5 : 15);
@@ -45,7 +45,7 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
   ctx.beginPath(); ctx.arc(from.x, from.y, (toeCue?5:7) * size, 0, Math.PI * 2);
   ctx.fillStyle = fault; ctx.fill(); ctx.strokeStyle = '#19251f'; ctx.lineWidth = 2 * size; ctx.stroke();
 
-  // One continuous direction arrow, curved around the pivot for rotation issues.
+  // One continuous direction arrow, curved around the pivot for rotation issues
   let tangent = from;
   let control: { x: number; y: number } | undefined;
   if (c.kind === 'rotation') {
@@ -72,7 +72,7 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
   ctx.lineTo(tip.x - Math.cos(direction + 0.5) * (toeCue?7:13) * size, tip.y - Math.sin(direction + 0.5) * (toeCue?7:13) * size);
   ctx.closePath(); ctx.fillStyle = '#bcf6ac'; ctx.fill();
 
-  // A visible destination, not just an unrelated ghost line.
+  // A visible destination, not just an unrelated ghost line
   ctx.globalAlpha=opacity;
   const pulse = 1 + Math.sin(time / 190) * (0.06+severity*0.2);
   ctx.beginPath(); ctx.arc(target.x, target.y, (toeCue?9:15) * size * pulse, 0, Math.PI * 2);
@@ -125,8 +125,8 @@ export function drawSquatVisual(ctx: CanvasRenderingContext2D, visual: NonNullab
   const pulse = 0.45 + 0.2 * Math.sin(time / 350);
   for (let index = 0; index < visual.reference.length; index++) {
     const ghost = visual.reference[index];
-    // Start and return share the same planted-foot geometry; distinct colors and
-    // travelling pulses show the out-and-back sequence without displacing feet.
+    // Keep the feet planted for both standing poses
+    // Use color and moving pulses to show the way down and back up
     ctx.strokeStyle = index === 2 ? '#8acfff' : '#bcf6ac';
     ctx.globalAlpha = index === 0 ? pulse : 0.18;
     ctx.lineWidth = index === 2 ? 1 : 2;

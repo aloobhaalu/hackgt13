@@ -3,7 +3,7 @@ import { rankedIssues } from '../recap/content';
 import { createGeminiPayload } from '../recap/payload';
 import type { SessionSummary } from '../recap/summary';
 
-/** Render only inside developer mode. No logging, credentials, headers, or response data. */
+// Show this only in debug mode and keep credentials out
 export default function RecapPayload({summary,diagnostics,ended=false}:{summary:SessionSummary;diagnostics?:RecapDiagnostics;ended?:boolean}) {
   const payload=createGeminiPayload(summary);
   return <section className="recap-payload" aria-label="Gemini recap payload">

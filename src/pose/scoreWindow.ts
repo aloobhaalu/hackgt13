@@ -1,6 +1,7 @@
 import { FEEDBACK } from '../config';
 
-/** Pose-driven windows only. Invalid scoring gates clear the cached value immediately. */
+// Smooth scores from the pose measurements we have
+// Clear the displayed score as soon as tracking becomes uncertain
 export class ScoreWindow {
   private samples: { at: number; score: number }[] = [];
   private sampledAt: number | null = null;

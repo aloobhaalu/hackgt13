@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import type { Assessment } from '../pose/types';
 import { EXERCISES, FRONT_SQUAT, VIEW, FEEDBACK, TRACKING } from '../config';
 import ValidationPanel from './ValidationPanel';
@@ -8,16 +7,12 @@ export default function DebugPanel({ assessment: a, source, cameraStatus, demoSt
   assessment: Assessment; source: 'camera' | 'demo'; cameraStatus: string;
   demoStart: () => void; retry: () => void;
 }) {
-  const [threshold,setThreshold]=useState(FEEDBACK.qualityRepThreshold);
   return <aside className="debug-panel" aria-label="Developer pose diagnostics">
     <div className="debug-title"><h2>Developer diagnostics</h2><span>D to hide · {source === 'camera' ? 'REAL CAMERA' : 'SYNTHETIC DEMO'}</span></div>
-    <label>Quality Rep threshold <input type="number" min="0" max="100" step="1" value={threshold} onChange={event=>{const n=event.target.valueAsNumber;if(Number.isFinite(n)){FEEDBACK.qualityRepThreshold=Math.max(0,Math.min(100,n));setThreshold(FEEDBACK.qualityRepThreshold);}}}/></label>
     <dl className="debug-summary">
       {exercise==='squat'&&<><dt>Squat cycle / block reason</dt><dd>{a.debug.squatCycle?.state??a.debug.squat?.state??'FRAME_INVALID'} / {a.debug.squatCycle?.blockReason??'Tracking/view confidence lost'}</dd><dt>Last failed squat cycle</dt><dd>{a.debug.squatCycle?.lastFailure??'None recorded'}</dd><dt>Squat cycle evidence</dt><dd><pre>{JSON.stringify(a.debug.squatCycle??a.debug.squat?.cycle??{},null,2)}</pre></dd></>}
       {exercise==='curl'&&<><dt>Curl cycle / block reason</dt><dd>{a.debug.curlCycle?.state??'FRAME_INVALID'} / {a.debug.curlCycle?.blockReason??'Tracking/view confidence lost'}</dd><dt>Last failed curl cycle</dt><dd>{a.debug.curlCycle?.lastFailure??'None recorded'}</dd><dt>Curl cycle evidence</dt><dd><pre>{JSON.stringify(a.debug.curlCycle??{},null,2)}</pre></dd></>}
-      <dt>Completed cycles / Quality Reps</dt><dd>{a.debug.completedCycles??0} / {a.reps}</dd>
-      <dt>Brief tracking gap</dt><dd>{a.debug.trackingGapMs===undefined?'None':`${Math.round(a.debug.trackingGapMs)} ms; rep evidence paused`}</dd>
-      <dt>Last completed rep quality</dt><dd>{a.debug.lastRepScore?.toFixed(1)??'Unavailable'}</dd>
+      <dt>Brief tracking gap</dt><dd>{a.debug.trackingGapMs===undefined?'None':`${Math.round(a.debug.trackingGapMs)} ms; movement evidence paused`}</dd>
       <dt>Plank hold duration</dt><dd>{((a.holdMs??0)/1000).toFixed(1)} s</dd>
       <dt>Camera</dt><dd>{cameraStatus}</dd>
       <dt>Visual coaching / scoring</dt><dd>{String(a.debug.coachingEnabled??false)} / {String(a.debug.scoringEnabled??false)}</dd>

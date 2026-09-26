@@ -16,7 +16,6 @@ export type CurlCycleDebug = {
 export type DebugData = {
   exercise?: string; view?: string; state?: string; viewValid?: boolean; trackingGapMs?:number;
   coachingEnabled?: boolean; scoringEnabled?: boolean; scoreUpdatedAt?: number | null;
-  completedCycles?: number; lastRepScore?: number | null;
   curlCycle?:CurlCycleDebug;
   curlPartial?: { count:number; severityTotal:number; maxSeverity:number };
   squat?: SquatDebug; squatCycle?:SquatCycleDebug;
@@ -32,7 +31,7 @@ export type DebugData = {
 export type SquatState = 'FRAME_INVALID' | 'CALIBRATING_STANDING' | 'DESCENDING' | 'HOLDING' | 'ASCENDING' | 'EXIT';
 export type SquatDebug = {
   cycle?:SquatCycleDebug;
-  scoreUpdatedAt?: number | null; completedCycles?: number; lastRepScore?: number | null;
+  scoreUpdatedAt?: number | null;
   coachingEnabled?: boolean;
   state: SquatState; source: 'world' | 'normalized' | null;
   kneeAngle: number | null; hipAngle: number | null; torsoTilt: number | null;
@@ -49,7 +48,7 @@ export type SquatDebug = {
 export type Assessment = {
   ready: boolean; confidence: number; reason: string; score: number | null;
   scoreStatus?: 'ready' | 'uncertain' | 'live'; holdMs?: number;
-  reps: number; phase: 'Ready' | 'Lower' | 'Hold' | 'Rise' | 'Curl' | 'Release' | 'Pull' | 'Return';
+  phase: 'Ready' | 'Lower' | 'Hold' | 'Rise' | 'Curl' | 'Release' | 'Pull' | 'Return';
   correction: Correction | null; confirmed: boolean;
   corrections?: Correction[];
   guidance?: string[];
