@@ -1,3 +1,8 @@
+import RepCounter from './components/RepCounter';
+import { emptyAssessment } from './pose/engine';
+import { createGeminiPayload } from './recap/payload';
+import { parseSummary } from './recap/summary';
+import { localRecap } from './recap/content';
 import TargetGuide from './components/TargetGuide';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,6 +12,9 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { demoPose } from './pose/demo';
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
+import { repFrame, repMotion } from './pose/repFixtures';
+import type { Pose } from './pose/types';
+import { readFileSync } from 'node:fs';
 
 function setup(query = '') {
   const dom = new JSDOM('<div id="root"></div>', { url: `http://localhost/${query}` });
@@ -195,5 +203,148 @@ test('camera session locks one target, hides the guide and clears feedback inste
     assert.equal(moves.length,0);assert.equal(ctx.window.document.querySelector('.alignment-indicator'),null);assert.equal(guide().getAttribute('data-visible'),'false');
     for(let now=2665;now<=3575;now+=65)await advance(now);
     assert.equal(guide().getAttribute('data-visible'),'true');assert.equal(moves.length,0);
+  }finally{FilesetResolver.forVisionTasks=oldResolver;PoseLandmarker.createFromOptions=oldCreate;await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
+});
+
+test('End stops coaching before one request and keeps every exercise in a modal until Done',async()=>{
+  const ctx=setup(),originalFetch=globalThis.fetch,oldResolver=FilesetResolver.forVisionTasks,oldCreate=PoseLandmarker.createFromOptions;
+  let calls=0,stopped=0,closed=0,payload:Record<string,unknown>|undefined,reject!:(error:Error)=>void;
+  const frames=new Map<number,FrameRequestCallback>();let next=0;
+  Object.assign(globalThis,{requestAnimationFrame:(callback:FrameRequestCallback)=>{frames.set(++next,callback);return next;},cancelAnimationFrame:(id:number)=>frames.delete(id)});
+  ctx.window.HTMLMediaElement.prototype.play=async()=>{};
+  Object.defineProperty(ctx.window.navigator,'mediaDevices',{value:{getUserMedia:async()=>{const track={enabled:true,onended:null,stop:()=>{stopped++;}};return {getTracks:()=>[track],getVideoTracks:()=>[track]};}}});
+  FilesetResolver.forVisionTasks=(async()=>({})) as typeof FilesetResolver.forVisionTasks;
+  PoseLandmarker.createFromOptions=(async()=>({detectForVideo:()=>{throw new Error('no inference after End');},close:()=>{closed++;}})) as unknown as typeof PoseLandmarker.createFromOptions;
+  globalThis.fetch=(async(url,init)=>{assert.equal(url,'/api/session-recap');calls++;assert.ok(stopped>0);assert.equal(closed,calls);assert.equal(frames.size,0);payload=JSON.parse(String(init?.body));return new Promise<Response>((_resolve,no)=>{reject=no;});}) as typeof fetch;
+  try {
+    await act(async()=>ctx.root.render(<StrictMode><App/></StrictMode>));
+    for(const [index,exercise] of ['squat','curl','plank'].entries()) {
+      await act(async()=> (ctx.window.document.querySelectorAll('.exercise-card')[index] as HTMLElement).click());
+      await act(async()=> (ctx.window.document.querySelector('.view-choice') as HTMLElement).click());
+      const stage=ctx.window.document.querySelector('.camera-stage')!;
+      const video=stage.querySelector('video') as HTMLVideoElement;assert.ok(video.srcObject);assert.equal(calls,index);
+      const end=ctx.window.document.querySelector('.end-button') as HTMLElement;
+      await act(async()=>{end.click();end.click();});
+      assert.equal(calls,index+1);assert.equal(payload?.exercise,exercise);
+      assert.equal(ctx.window.document.querySelector('.camera-stage'),stage,'same coaching screen remains mounted');
+      assert.equal(video.srcObject,null);assert.equal(frames.size,0);assert.equal(ctx.window.document.querySelector('.exercise-grid'),null);
+      assert.ok(ctx.window.document.querySelector('main')?.hasAttribute('inert'));assert.ok(ctx.window.document.querySelector('header')?.hasAttribute('inert'));
+      const modal=ctx.window.document.querySelector('.session-recap[role=dialog]')!;
+      assert.equal(modal.getAttribute('aria-modal'),'true');assert.match(modal.textContent!,/Preparing recap/);
+      assert.equal(modal.querySelectorAll('button').length,1);assert.equal(modal.querySelector('button')?.textContent,'Done');
+      assert.equal(ctx.window.document.activeElement,modal.querySelector('button'));
+      assert.equal(modal.querySelector('.recap-payload'),null);assert.ok(modal.querySelector('.recap-totals.is-empty'));
+      if(exercise==='plank'){assert.match(modal.textContent!,/Best Hold/);assert.match(modal.textContent!,/Total Hold Time/);assert.doesNotMatch(modal.textContent!,/Reps/);}
+      else {assert.match(modal.textContent!,/Total Reps/);assert.match(modal.textContent!,/Quality Reps/);}
+      await act(async()=>ctx.window.dispatchEvent(new ctx.window.KeyboardEvent('keydown',{key:'d',bubbles:true})));
+      const preview=modal.querySelector('.recap-payload pre')!;assert.ok(preview);
+      assert.deepEqual(JSON.parse(preview.textContent!),createGeminiPayload(payload));
+      const modelData=JSON.parse(JSON.parse(preview.textContent!).contents[0].parts[0].text);
+      assert.deepEqual(modelData.summary,payload);assert.ok(parseSummary(modelData.summary));
+      for(const key of ['landmarks','frames','video','screenshots','identity','apiKey','headers'])assert.ok(!(key in modelData.summary));
+      await act(async()=>modal.querySelector('button')!.dispatchEvent(new ctx.window.KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true})));
+      assert.equal(ctx.window.document.activeElement,preview);
+      await act(async()=>ctx.window.dispatchEvent(new ctx.window.KeyboardEvent('keydown',{key:'d',bubbles:true})));
+      await act(async()=>reject(new Error('private API error')));
+      assert.equal(ctx.window.document.querySelector('.session-recap'),modal);assert.doesNotMatch(modal.textContent!,/Preparing recap|private API error/);
+      const summary=parseSummary(payload)!;assert.equal(modal.querySelector('h2')?.textContent,localRecap(summary).headline);assert.ok(modal.querySelectorAll('li').length<=2);
+      await act(async()=> (modal.querySelector('.recap-done') as HTMLElement).click());
+      assert.ok(ctx.window.document.querySelector('.exercise-grid'));assert.equal(ctx.window.document.querySelector('.session-recap'),null);assert.equal(ctx.window.document.querySelector('.camera-stage'),null);
+      assert.equal(ctx.window.document.body.style.overflow,'');assert.ok(!ctx.window.document.querySelector('main')?.hasAttribute('inert'));
+    }
+  }finally{globalThis.fetch=originalFetch;FilesetResolver.forVisionTasks=oldResolver;PoseLandmarker.createFromOptions=oldCreate;await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
+});
+
+test('slow recap times out inside the same modal and never surfaces an API error',async()=>{
+  const ctx=setup(),originalFetch=globalThis.fetch;let calls=0;
+  globalThis.fetch=(async()=>{calls++;return new Promise<Response>(()=>{});}) as typeof fetch;
+  try {
+    await act(async()=>ctx.root.render(<App/>));
+    await act(async()=> (ctx.window.document.querySelector('.exercise-card') as HTMLElement).click());
+    await act(async()=> (ctx.window.document.querySelector('.view-choice') as HTMLElement).click());
+    await act(async()=> (ctx.window.document.querySelector('.end-button') as HTMLElement).click());
+    const modal=ctx.window.document.querySelector('.session-recap')!;assert.match(modal.textContent!,/Preparing recap/);
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,3600));});
+    assert.equal(ctx.window.document.querySelector('.session-recap'),modal);assert.equal(calls,1);
+    assert.equal(modal.querySelector('h2')?.textContent,'Not enough squat movement to summarize');assert.ok(ctx.window.document.querySelector('.camera-stage'));
+    await act(async()=> (modal.querySelector('.recap-done') as HTMLElement).click());assert.equal(ctx.window.document.querySelector('.session-recap'),null);
+  }finally{globalThis.fetch=originalFetch;await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
+});
+
+test('Done clears pending recap permanently; debug query previews the sanitized body without sending it live',async()=>{
+  const ctx=setup('?debug=1'),originalFetch=globalThis.fetch;let calls=0,resolve!:(response:Response)=>void,body:unknown;
+  globalThis.fetch=(async(_url,init)=>{calls++;body=JSON.parse(String(init?.body));return new Promise<Response>(yes=>{resolve=yes;});}) as typeof fetch;
+  try {
+    await act(async()=>ctx.root.render(<App/>));
+    await act(async()=> (ctx.window.document.querySelector('.exercise-card') as HTMLElement).click());
+    await act(async()=> (ctx.window.document.querySelector('.view-choice') as HTMLElement).click());
+    assert.ok(ctx.window.document.querySelector('.recap-payload'));assert.equal(calls,0);
+    await act(async()=> (ctx.window.document.querySelector('.end-button') as HTMLElement).click());assert.equal(calls,1);
+    assert.deepEqual(JSON.parse(ctx.window.document.querySelector('.session-recap .recap-payload pre')!.textContent!),createGeminiPayload(body));
+    await act(async()=> (ctx.window.document.querySelector('.recap-done') as HTMLElement).click());
+    await act(async()=>resolve(new Response(JSON.stringify(localRecap(parseSummary(body)!)),{status:200})));
+    assert.equal(ctx.window.document.querySelector('.session-recap'),null);assert.ok(ctx.window.document.querySelector('.exercise-grid'));
+    await act(async()=> (ctx.window.document.querySelector('.exercise-card') as HTMLElement).click());
+    await act(async()=> (ctx.window.document.querySelector('.view-choice') as HTMLElement).click());
+    await act(async()=> (ctx.window.document.querySelector('.back-button') as HTMLElement).click());assert.equal(calls,1);
+  }finally{globalThis.fetch=originalFetch;await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
+});
+
+
+test('squat and curl show completed reps even below the Quality Rep threshold; plank remains a timer',async()=>{
+  const ctx=setup();
+  try {
+    for(const exercise of ['squat','curl','plank'] as const){const a=emptyAssessment();a.debug.completedCycles=2;a.reps=0;a.holdMs=61000;
+      await act(async()=>ctx.root.render(<RepCounter exercise={exercise} assessment={a}/>));
+      const counter=ctx.window.document.querySelector('.rep-count')!;
+      assert.equal(counter.querySelector('strong')?.textContent,exercise==='plank'?'1:01':'02');
+      if(exercise==='plank')assert.doesNotMatch(counter.textContent!,/Reps/);else {assert.match(counter.textContent!,/0 Quality Reps/);assert.match(counter.getAttribute('aria-label')!,/2 Reps/);}
+    }
+  }finally{await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
+});
+
+for(const exercise of ['squat','curl'] as const)for(const view of ['front','side'] as const)
+test(`camera pipeline with landmark fixtures: ${view} ${exercise} reaches the visible counter despite brief tracking dips`,async()=>{
+  const ctx=setup(),oldResolver=FilesetResolver.forVisionTasks,oldCreate=PoseLandmarker.createFromOptions;
+  const frames=new Map<number,FrameRequestCallback>();let next=0,now=0;
+  let poses:Pose[]=[],worlds:Pose[]=[];
+  Object.assign(globalThis,{requestAnimationFrame:(fn:FrameRequestCallback)=>{frames.set(++next,fn);return next;},cancelAnimationFrame:(id:number)=>frames.delete(id)});
+  const drawing=new Proxy({}, {get:()=>()=>{}});
+  ctx.window.HTMLCanvasElement.prototype.getContext=(()=>drawing) as unknown as typeof ctx.window.HTMLCanvasElement.prototype.getContext;
+  ctx.window.HTMLMediaElement.prototype.play=async()=>{};
+  for(const [key,value] of [['readyState',4],['videoWidth',1280],['videoHeight',720]] as const)Object.defineProperty(ctx.window.HTMLVideoElement.prototype,key,{configurable:true,get:()=>value});
+  Object.defineProperty(ctx.window.HTMLVideoElement.prototype,'currentTime',{configurable:true,get:()=>now/1000});
+  const track={enabled:true,onended:null,stop:()=>{}};
+  Object.defineProperty(ctx.window.navigator,'mediaDevices',{value:{getUserMedia:async()=>({getTracks:()=>[track],getVideoTracks:()=>[track]})}});
+  FilesetResolver.forVisionTasks=(async()=>({})) as typeof FilesetResolver.forVisionTasks;
+  PoseLandmarker.createFromOptions=(async()=>({detectForVideo:()=>({landmarks:poses,worldLandmarks:worlds}),close:()=>{}})) as unknown as typeof PoseLandmarker.createFromOptions;
+  try {
+    const style=ctx.window.document.createElement('style');style.textContent=readFileSync(new URL('./styles.css',import.meta.url),'utf8');ctx.window.document.head.append(style);
+    await act(async()=>ctx.root.render(<App/>));
+    await act(async()=> (ctx.window.document.querySelectorAll('.exercise-card')[exercise==='squat'?0:1] as HTMLElement).click());
+    const choice=Array.from(ctx.window.document.querySelectorAll('.view-choice')).find(b=>b.textContent!.toLowerCase().includes(`${view} view`))!;
+    await act(async()=> (choice as HTMLElement).click());
+    for(const selector of ['video','.pose-canvas'])assert.equal(ctx.window.getComputedStyle(ctx.window.document.querySelector(selector)!).transform,'scaleX(-1)');
+    const counts:number[]=[];let sawScore=false;
+    for(now=65;now<11000;now+=65) {
+      const f=repFrame(exercise,view,repMotion(now));
+      const jointDip=now>=5500&&now<5565,targetDip=now>=8500&&now<8565;
+      if(jointDip){const i=exercise==='curl'?15:27;f.pose[i].visibility=f.pose[i+1].visibility=.1;}
+      poses=targetDip?[]:[f.pose];worlds=targetDip?[]:[f.world];
+      const queued=[...frames.values()];frames.clear();await act(async()=>{queued.forEach(fn=>fn(now));});
+      const alignment=ctx.window.document.querySelector('.alignment-indicator')?.textContent;
+      sawScore ||= !!alignment?.includes('%');
+      if(jointDip||targetDip)assert.ok(!alignment?.includes('%'),'no score during uncertain tracking');
+      const counter=ctx.window.document.querySelector('.rep-count');
+      if(counter) {const count=Number(counter.querySelector('strong')!.textContent);assert.ok(count===0||count===1||count===2);assert.ok(!counts.length||count>=counts.at(-1)!);counts.push(count);}
+    }
+    assert.ok(sawScore);assert.equal(counts.at(-1),2);
+    const counter=ctx.window.document.querySelector('.rep-count')!;
+    assert.match(counter.getAttribute('aria-label')!,/2 Reps/);
+    assert.notEqual(ctx.window.getComputedStyle(counter).transform,'scaleX(-1)','counter text stays readable');
+    await act(async()=> (Array.from(ctx.window.document.querySelectorAll('button')).find(b=>b.textContent?.trim()==='Pause') as HTMLElement).click());
+    await act(async()=> (Array.from(ctx.window.document.querySelectorAll('button')).find(b=>b.textContent?.trim()==='Resume') as HTMLElement).click());
+    for(;now<12000;now+=65){const f=repFrame(exercise,view,0);poses=[f.pose];worlds=[f.world];const queued=[...frames.values()];frames.clear();await act(async()=>queued.forEach(fn=>fn(now)));}
+    assert.match(ctx.window.document.querySelector('.rep-count')!.getAttribute('aria-label')!,/2 Reps/,'reacquisition keeps the completed session count');
   }finally{FilesetResolver.forVisionTasks=oldResolver;PoseLandmarker.createFromOptions=oldCreate;await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
 });

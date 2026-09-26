@@ -1,4 +1,4 @@
-export const BRAND = { name: 'FormFlow', tagline: 'See your form.\nFind your flow.' };
+export const BRAND = { name: 'RepReady', logo: '/repready-mark.svg', tagline: 'See your form.\nFind your flow.' };
 export type ExerciseId = 'squat' | 'curl' | 'plank';
 export type CameraView = 'side' | 'front';
 export const VIEW = { frontMinSpread: 0.65, sideMaxSpread: 0.6, confirmMs: 400 };
@@ -17,7 +17,8 @@ export const FEEDBACK = {
 export const FRONT_SQUAT = {
   baselineMs: 1500, baselineRange: 0.025, uprightKnee: 155, minDrop: 0.08,
   kneeBend: 12, holdMs: 400, holdRange: 0.025, returnDrop: 0.04,
-  stanceHipMin: 1.1, stanceShoulderMin: 0.65, stanceShoulderMax: 1.1, stanceTolerance: 0.02,
+  stanceShoulderTarget: 1, stanceTolerance: 0.06, stanceRelease: 0.03, stanceVisibility: 0.65,
+  bottomDrop: 0.14, bottomKneeBend: 25, bottomConfirmMs: 100, ascentConfirmMs: 130, returnKneeTolerance: 15, returnConfirmMs: 130,
   toeVisibility: 0.75, toeOutMin: 10, toeOutMax: 35, toeOutTarget: 20, toePenaltyRange: 25,
   toeLengthMin: 0.07, toeLengthMax: 0.35, toeForwardMin: 0.025,
   kneeTrack: 0.28, kneeDirectionOffsetMax: 0.15, symmetry: 0.12, balance: 0.25,
@@ -29,10 +30,10 @@ export const FRONT_SQUAT = {
 export const EXERCISES = {
   squat: {
     name: 'Bodyweight squat', short: 'Squat', angle: 'Side view recommended', recommendedView: 'side',
-    maxLean: 48, depthAngle: 115,
+    maxLean: 45, depthAngle: 115,
     visibility: 0.45,
     frameTolerance: 0.02, framingHoldMs: 500, framingLossMs: 500, landmarkSmoothing: 0.32,
-    torsoTargetRatio: 0.7,
+    torsoTargetRatio: 0.7, torsoReleaseDegrees: 3, torsoConfirmMs: 200,
     depthKneeWeight: 0.5, depthDropWeight: 0.5,
     holdConfirmMs: 400, holdEvaluationMs: 600, holdSampleWindow: 5,
     holdMinKneeBend: 35, holdMinHipDrop: 0.14,
@@ -60,7 +61,7 @@ export const EXERCISES = {
     directionHipSpeed: 0.025, directionKneeSpeed: 5, directionHoldMs: 130,
     targetHipDrop: 0.3,
     ascentDrop: 0.035, ascentKneeExtension: 5,
-    finishHoldMs: 200, maxSequenceMs: 12000,
+    finishHoldMs: 130, returnHipDrop: 0.05, returnKneeTolerance: 15, bottomConfirmMs: 100, ascentConfirmMs: 130, maxSequenceMs: 12000,
     maxFrameGapMs: 350,
     maxHipSpeed: 1.6, maxKneeSpeed: 260,
     minHipHeight: 0.22, minShinHeight: 0.15,
@@ -69,11 +70,18 @@ export const EXERCISES = {
   },
   curl: {
     name: 'Standing Dumbbell Bicep Curl', short: 'Dumbbell curl', angle: 'Front view recommended', recommendedView: 'front',
-    phaseStart: 150, phaseEnd: 65,
+    phaseStart: 150, phaseEnd: 85, topMinBend: 75, topConfirmMs: 100,
     maxLean: 12, elbowDrift: 0.38, asymmetry: 28,
-    readyMs: 500, movementBend: 18, movementRise: 0.06, phaseMs: 180, timeoutMs: 10000,
+    readyMs: 1100, movementBend: 18, movementRise: 0.06, phaseMs: 180, timeoutMs: 10000,
     maxSpeed: 220, upperArmDrift: 0.2, stability: 0.035,
     handSideways: 0.32, backwardForearm: 0.15,
+    scoreWeights: { arm: 0.25, torso: 0.35, stability: 0.15, control: 0.1, symmetry: 0.15, range: 0.3 },
+    calibrationLeanMax: 18, calibrationAngleRange: 8, calibrationSpeed: 22,
+    downAngleTolerance: 12, downWristTolerance: 0.16, downStableMs: 130,
+    loweringStallMs: 450, directionSpeed: 5, bottomPenaltyAngle: 55,
+    maxArmAbduction: 55, minUpperArmVertical: 0.5,
+    leanPenaltyRange: 25, hipShift: 0.12, hipShiftPenaltyRange: 0.3,
+    trunkSpeed: 0.6, trunkSpeedPenaltyRange: 1, facingEvidence: 0.02,
   },
   plank: {
     name: 'High Plank', short: 'High plank', angle: 'Side view recommended', recommendedView: 'side',
@@ -85,6 +93,8 @@ export const EXERCISES = {
 } as const;
 
 export const TRACKING = {
+  // Suppress output during brief dropouts, but retain an observed rep for the same nearby body.
+  repGraceMs: 180, repResumeTravel: 0.45,
   visibility: 0.45,
   frameTolerance: 0.02,       // Allow small coordinate noise at image boundaries.
   framingHoldMs: 500,         // Good body landmarks before first assessment.

@@ -39,8 +39,9 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
   }
   // Highlight this issue's affected segment and its target.
   segment(pivot, from, fault, (subtle ? 2 : 3)+severity*2);
-  segment(pivot, target, '#b9f5aa45', subtle ? 5 : 15);
-  segment(pivot, target, '#bcf6ac99', 2);
+  const targetPivot=c.targetAnchor?toPixel(c.targetAnchor):pivot;
+  segment(targetPivot, target, '#b9f5aa45', subtle ? 5 : 15);
+  segment(targetPivot, target, '#bcf6ac99', 2);
   ctx.beginPath(); ctx.arc(from.x, from.y, (toeCue?5:7) * size, 0, Math.PI * 2);
   ctx.fillStyle = fault; ctx.fill(); ctx.strokeStyle = '#19251f'; ctx.lineWidth = 2 * size; ctx.stroke();
 

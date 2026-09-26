@@ -57,3 +57,13 @@ test('severe corrections use stronger color, opacity and arrow width; unknown se
   const widths=(r:ReturnType<typeof recorder>)=>r.styles.filter(s=>s.name==='lineWidth').map(s=>s.value);
   assert.ok(widths(severe)[0]>widths(mild)[0]);assert.equal(unknown.calls.length,0);
 });
+
+test('curl down-range ghost keeps its calibrated forearm length while the wrist arrow starts at the current hand',()=>{
+  const {calls,context}=recorder(),pose=demoPose('curl',1,false);
+  const cue:Correction={id:'bottom-range-0',label:'',joint:15,anchor:13,kind:'translation',severity:.8,
+    targetAnchor:{x:.4,y:.55,visibility:1},target:{x:.4,y:.75,visibility:1}};
+  drawCorrection(context,pose,cue,800,600,0);
+  assert.ok(calls.some(c=>c.name==='moveTo'&&c.args[0]===320&&c.args[1]===330));
+  assert.ok(calls.some(c=>c.name==='lineTo'&&c.args[0]===320&&c.args[1]===450));
+  assert.ok(calls.some(c=>c.name==='moveTo'&&c.args[0]===pose[15].x*800&&c.args[1]===pose[15].y*600));
+});

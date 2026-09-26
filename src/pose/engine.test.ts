@@ -8,8 +8,10 @@ import type { CameraView, ExerciseId } from '../config';
 import type { Pose } from './types';
 import { FEEDBACK } from '../config';
 import { validationRecord } from './validation';
+import { repFrame, repMotion } from './repFixtures';
 
 function curl(ms:number, view:CameraView, bad=false):Pose {
+  ms=Math.max(0,ms-650);
   const p=demoPose('curl',0,false);
   const flex=ms<1800?0:ms<3200?(ms-1800)/1400:ms<4000?1:ms<5600?1-(ms-4000)/1600:0;
   for(const s of [0,1]) {
@@ -29,7 +31,7 @@ function frontSquat(ms:number,bad=false):{p:Pose;world:Pose} {
     p[11+s]={x:.4+s*.2,y:.2+flex*.16,visibility:.99};
     p[23+s]={x:.44+s*.12,y:.45+flex*.16,visibility:.99};
     p[25+s]={x:.42+s*.16+(bad&&s===0?.09*flex:0),y:.68+flex*.03,visibility:.99};
-    p[27+s]={x:.39+s*.22,y:.9,visibility:.99};
+    p[27+s]={x:.4+s*.2,y:.9,visibility:.99};
     p[29+s]={x:p[27+s].x,y:.89,visibility:.99};
     p[31+s]={x:p[27+s].x+(s===0?-1:1)*.05*Math.sin(Math.PI/9),y:.89+.05*Math.cos(Math.PI/9),visibility:.99};
   }
@@ -55,8 +57,8 @@ test('angles remain body relative',()=>{
 for(const view of ['side','front'] as CameraView[]) {
   test(`curl ${view}: upper-body-only frame counts a complete curl`,()=>{
     const engine=new CoachEngine('curl',view);let scored=false,last=engine.interrupt();
-    for(let ms=0;ms<6500;ms+=65){last=engine.update(curl(ms,view),ms).assessment;scored ||= last.score!==null;}
-    assert.ok(scored);assert.equal(last.reps,1);
+    for(let ms=0;ms<7500;ms+=65){last=engine.update(curl(ms,view),ms).assessment;scored ||= last.score!==null;}
+    assert.ok(scored);assert.equal(last.debug.completedCycles,1); // This 2D front fixture includes sideways hand travel, so quality may be lower.
     assert.ok(framing(curl(0,view),'curl',view).ok);
   });
   test(`curl ${view}: static bent arms do not score or count`,()=>{
@@ -66,11 +68,11 @@ for(const view of ['side','front'] as CameraView[]) {
 }
 test('curl emits simultaneous front-view corrections without side-view torso metrics',()=>{
   const e=new CoachEngine('curl','front');let seen=false;
-  for(let ms=0;ms<6000;ms+=65){const a=e.update(curl(ms,'front',true),ms).assessment;seen ||= (a.corrections?.length??0)>1;assert.ok(!a.debug.components.some(c=>c.id==='torso'));}
+  for(let ms=0;ms<7000;ms+=65){const a=e.update(curl(ms,'front',true),ms).assessment;seen ||= (a.corrections?.length??0)>1;assert.ok(!a.debug.components.some(c=>c.id==='torso'));}
   assert.ok(seen);
 });
 test('full-body exercises reject cropped feet; curls ignore legs but require wrists',()=>{
-  for(const id of ['squat','plank'] as ExerciseId[]){const p=demoPose(id,0);p[31].y=1.2;p[32].y=1.2;assert.equal(framing(p,id).ok,false);}
+  for(const id of ['squat','plank'] as ExerciseId[]){const p=demoPose(id,0);p[27].y=1.2;p[28].y=1.2;assert.equal(framing(p,id).ok,false);}
   const p=curl(0,'front');assert.ok(framing(p,'curl','front').ok);p[15].visibility=.1;assert.equal(framing(p,'curl','front').ok,false);
 });
 test('framing needs 500ms and confidence loss immediately clears a score',()=>{
@@ -106,7 +108,7 @@ test('wrong views and static front crouch never score',()=>{
 });
 test('aspect correction and scale preserve curl scores',()=>{
   const a=new CoachEngine('curl','side'),b=new CoachEngine('curl','side');
-  for(let ms=0;ms<6500;ms+=65){const p=curl(ms,'side'),q=p.map(v=>({...v,x:.1+v.x*.6/1.7,y:.1+v.y*.6}));const x=a.update(p,ms).assessment,y=b.update(q,ms,1.7).assessment;assert.equal(x.score,y.score);assert.equal(x.reps,y.reps);}
+  for(let ms=0;ms<7500;ms+=65){const p=curl(ms,'side'),q=p.map(v=>({...v,x:.1+v.x*.6/1.7,y:.1+v.y*.6}));const x=a.update(p,ms).assessment,y=b.update(q,ms,1.7).assessment;assert.equal(x.score,y.score);assert.equal(x.reps,y.reps);}
 });
 test('multiple prominent people pause assessment and interruptions clear active state',()=>{
   const p=curl(0,'front');assert.ok(choosePose([p,p],'curl').ambiguous);
@@ -302,7 +304,7 @@ test('side curl setup shows torso, upper-arm and backward forearm corrections wi
 for(const view of ['front','side'] as CameraView[])test(`curl ${view}: Ready, live phases and incomplete/uncertain cycles`,()=>{
   for(const mode of ['complete','partial','lost']) {
     const e=new CoachEngine('curl',view);const phases=new Set<string>();let ready=false,last=e.interrupt();
-    for(let ms=0;ms<6500;ms+=65) {
+    for(let ms=0;ms<7500;ms+=65) {
       const t=mode==='partial'&&ms>2600?Math.max(0,2600-(ms-2600)):ms;
       const p=curl(t,view);if(mode==='lost'&&ms>3000&&ms<3200)for(const i of [15,16])p[i].visibility=0;
       last=e.update(p,ms).assessment;
@@ -312,7 +314,7 @@ for(const view of ['front','side'] as CameraView[])test(`curl ${view}: Ready, li
       if(mode==='lost'&&ms>3000&&ms<3200){assert.equal(last.score,null);assert.notEqual(last.scoreStatus,'ready');}
     }
     assert.ok(ready);
-    if(mode==='complete'){for(const state of ['CURLING_UP','TOP','LOWERING'])assert.ok(phases.has(state));assert.equal(last.reps,1);}
+    if(mode==='complete'){for(const state of ['CURLING_UP','TOP','LOWERING'])assert.ok(phases.has(state));assert.equal(last.debug.completedCycles,1);}
     else assert.equal(last.reps,0);
   }
 });
@@ -321,7 +323,7 @@ test('curl complete-cycle quality respects the configurable threshold, including
   const original=FEEDBACK.qualityRepThreshold;
   const run=(bad=false)=>{
     const e=new CoachEngine('curl','side');let last=e.interrupt();
-    for(let ms=0;ms<6500;ms+=65){const p=curl(ms,'side');if(bad&&ms>1800)for(const i of [23,24])p[i].x-=Math.min(1,(ms-1800)/500)*.22;last=e.update(p,ms).assessment;}
+    for(let ms=0;ms<7500;ms+=65){const p=curl(ms,'side');if(bad&&ms>2450)for(const i of [23,24])p[i].x-=Math.min(1,(ms-2450)/500)*Math.max(0,Math.min(1,(6650-ms)/700))*.22;last=e.update(p,ms).assessment;}
     return last;
   };
   try {
@@ -392,4 +394,77 @@ test('acquisition rejects ambiguous, small, unreliable or stale evidence and all
   assert.equal(target.update([pose],520).pose,pose,'hidden legs or far-side torso must not block target acquisition');
   target.reset();target.update([pose],0);assert.equal(target.update([pose],1000).state,'selecting');
   assert.equal(target.update([],1100).state,'selecting');
+});
+
+
+test('front squat repeats without a held bottom and preserves standing calibration',()=>{
+  const e=new CoachEngine('squat','front');let last=e.interrupt();
+  for(let t=0;t<8800;t+=65){const phase=(t-2700)%3000;const flex=t<2700?0:phase<1300?phase/1300:phase<2600?1-(phase-1300)/1300:0;
+    const {p,world}=frontSquat(2700+1600*flex);last=e.update(p,t,1,false,world).assessment;}
+  assert.equal(last.debug.completedCycles,2);assert.ok(last.debug.squatCycle?.calibrated);assert.ok(!last.debug.components.some(c=>c.id==='torso'));
+});
+
+test('front squat labels narrow and wide stance separately and suppresses uncertain foot targets',()=>{
+  for(const [width,kind] of [[.025,'narrow'],[.44,'wide']] as const){const e=new CoachEngine('squat','front');let last=e.interrupt();
+    for(let t=0;t<4000;t+=65){const {p,world}=frontSquat(0);for(const s of [0,1]){p[27+s].x=.5+(s===0?-1:1)*width/2;if(t>3000)p[27+s].visibility=p[28].visibility=.5;}
+      last=e.update(p,t,1,false,world).assessment;
+      if(t>1800&&t<2800){const cues=last.corrections?.filter(c=>c.id.startsWith('stance-'))??[];assert.equal(cues.length,2);for(const c of cues){assert.match(c.id,new RegExp('stance-'+kind));assert.ok((c.target.x-p[c.joint].x)*(p[c.joint].x-.5)*(kind==='wide'?-1:1)>0);}assert.ok(!last.corrections?.some(c=>c.id.startsWith('knee-track')));}
+    }
+    assert.ok(!last.corrections?.some(c=>c.id.startsWith('stance-')));
+  }
+});
+
+
+test('front squat foot targets match shoulder width and tolerate small tracking noise',()=>{
+  for(const ratio of [.85,.96,1,1.04,1.15])for(const aspect of [1,1.6]) {
+    const e=new CoachEngine('squat','front');let last=e.interrupt(),pose:Pose=[];
+    for(let t=0;t<2600;t+=65){const {p}=frontSquat(0);for(const side of [0,1])p[27+side].x=.5+(side===0?-1:1)*.2*ratio/2;
+      const scaled=p.map(v=>({...v,x:(.1+v.x*.75)/aspect,y:.1+v.y*.75}));
+      const output=e.update(scaled,t,aspect);last=output.assessment;pose=output.pose;
+    }
+    const feet=last.corrections?.filter(c=>c.id.startsWith('stance-'))??[];
+    if(ratio<.94||ratio>1.06){assert.equal(feet.length,2);assert.ok(Math.abs(Math.abs(feet[0].target.x-feet[1].target.x)-Math.abs(pose[11].x-pose[12].x))<1e-8);
+      for(const c of feet)assert.ok((c.target.x-pose[c.joint].x)*(pose[c.joint].x-(pose[27].x+pose[28].x)/2)*(ratio<1?1:-1)>0);
+    }else assert.equal(feet.length,0);
+    assert.equal(last.score,null);assert.ok(!last.corrections?.some(c=>c.id.startsWith('knee-track-')));
+  }
+});
+
+test('correcting stance to shoulder width clears feet guidance and uncertain shoulders suppress it',()=>{
+  for(const uncertain of [false,true]) {
+    const e=new CoachEngine('squat','front');let seen=false,last=e.interrupt();
+    for(let t=0;t<4500;t+=65){const {p}=frontSquat(0),ratio=t<2400||uncertain?.8:1;
+      for(const side of [0,1]){p[27+side].x=.5+(side===0?-1:1)*.2*ratio/2;if(uncertain&&t>2400)p[11+side].visibility=.5;}
+      last=e.update(p,t).assessment;seen ||= !!last.corrections?.some(c=>c.id.startsWith('stance-'));
+    }
+    assert.ok(seen);assert.ok(!last.corrections?.some(c=>c.id.startsWith('stance-')));
+  }
+});
+
+
+test('front squat counts full cycles with hidden optional feet, but missing knees invalidate a cycle',()=>{
+  for(const lostKnee of [false,true]){const e=new CoachEngine('squat','front');let last=e.interrupt();
+    for(let t=0;t<10000;t+=65){const {p,world}=frontSquat(t);for(const i of [29,30,31,32])p[i].visibility=.1;
+      if(lostKnee&&t>3500&&t<3700)p[25].visibility=.1;
+      last=e.update(p,t,1,false,world).assessment;
+      assert.ok(!last.corrections?.some(c=>c.id.startsWith('toe-direction')));
+    }
+    assert.equal(last.debug.completedCycles,lostKnee?0:1);assert.equal(last.reps,lostKnee?0:1);
+    if(!lostKnee){assert.equal(e.interrupt().debug.completedCycles,1);assert.equal(e.update(undefined,10050).assessment.debug.completedCycles,1);}
+  }
+});
+
+for(const exercise of ['squat','curl'] as const)for(const view of ['front','side'] as const)
+test(`${view} ${exercise}: brief recovery cannot bridge a long gap, body jump, or unseen top`,()=>{
+  for(const mode of ['long','jump','unseen-top'] as const) {
+    const e=new CoachEngine(exercise,view);let last=e.interrupt(),missed=false;
+    for(let t=0;t<9000;t+=65) {
+      const f=repFrame(exercise,view,repMotion(t,1));
+      const missing=mode==='unseen-top'?t>=4900&&t<6500:mode==='long'?t>=5500&&t<5850:t>=5500&&t<5565;
+      if(mode==='jump'&&t>=5565&&t<5630)for(const p of f.pose)p.x+=.2;
+      last=e.update(missing?undefined:f.pose,t,16/9,false,f.world).assessment;
+      if(missing){missed=true;assert.equal(last.score,null);assert.equal(last.corrections?.length??0,0);assert.equal(last.debug.completedCycles,0);}
+    }
+    assert.ok(missed);assert.equal(last.debug.completedCycles,0,mode);assert.equal(last.reps,0,mode);
+  }
 });

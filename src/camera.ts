@@ -1,3 +1,5 @@
+import { BRAND } from './config';
+
 export type CameraResult = { stream: MediaStream; error?: never } | { error: Error; stream?: never };
 
 /** Starts synchronously in the card/retry click, before React renders or any model downloads. */
@@ -12,7 +14,7 @@ export function requestCamera(getMedia?: () => Promise<MediaStream>) {
   };
   try {
     if (!getMedia && !navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Camera unavailable. Open FormFlow on localhost or HTTPS.');
+      throw new Error(`Camera unavailable. Open ${BRAND.name} on localhost or HTTPS.`);
     }
     const pending = getMedia ? getMedia() : navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false,
