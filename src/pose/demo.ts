@@ -5,9 +5,9 @@ export function demoPose(id: ExerciseId, seconds: number, withErrors = true): Po
   const p: Pose=Array.from({length:33},()=>({x:0.5,y:0.5,z:0,visibility:0.98}));
   const set=(i:number,x:number,y:number)=>{p[i]={x,y,z:0,visibility:0.98};};
   // Squat demonstrations include a genuine upright hold for baseline acquisition.
-  const period=id==='squat'?6.5:5, local=seconds%period, cycle=local/period;
+  const period=id==='squat'?10:5, local=seconds%period, cycle=local/period;
   const ease=(v:number)=>(1-Math.cos(Math.PI*Math.max(0,Math.min(1,v))))/2;
-  const t=id==='squat'?(local<1.5?0:local<3.1?ease((local-1.5)/1.6):local<3.5?1:local<5.1?1-ease((local-3.5)/1.6):0):(1-Math.cos(cycle*Math.PI*2))/2;
+  const t=id==='squat'?(local<2.6?0:local<4.2?ease((local-2.6)/1.6):local<7.4?1:local<9?1-ease((local-7.4)/1.6):0):(1-Math.cos(cycle*Math.PI*2))/2;
   const error=withErrors && Math.floor(seconds/period)%3===1 ? (id==='squat'?t:Math.sin(cycle*Math.PI)**2) : 0;
   if(id==='squat') {
     for(const side of [0,1]){

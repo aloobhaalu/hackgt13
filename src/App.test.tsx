@@ -90,7 +90,7 @@ test('permission success shows video before tracking loads; visual setup disappe
     assert.equal(playCalls, 1, 'StrictMode must not attach the stream twice');
     const video = ctx.window.document.querySelector('video') as HTMLVideoElement;
     assert.equal(video.srcObject, stream);
-    assert.ok(ctx.window.document.querySelector('.quick-setup'));
+    assert.equal(ctx.window.document.querySelector('.quick-setup'), null, 'squat startup has no written setup overlay');
     assert.equal(ctx.window.document.querySelector('.stage-overlay'), null, 'model loading must not cover the video');
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 2700)); });
     assert.equal(ctx.window.document.querySelector('.quick-setup'), null);

@@ -103,8 +103,8 @@ export function useCoach(exercise: ExerciseId, source: SessionSource) {
         await video.play();
         if (disposed) return;
         // Display camera immediately. Model loading never hides the live video.
-        setHasVideo(true); setShowSetup(true); setMessage('Loading pose tracking');
-        introUntil = performance.now() + TRACKING.setupOverlayMs;
+        setHasVideo(true); setShowSetup(exercise !== 'squat'); setMessage('Loading pose tracking');
+        introUntil = performance.now() + (exercise === 'squat' ? 0 : TRACKING.setupOverlayMs);
         setupTimer = setTimeout(() => { if (!disposed) setShowSetup(false); }, TRACKING.setupOverlayMs);
 
         const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');

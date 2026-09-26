@@ -1,16 +1,27 @@
 ﻿import { CONNECTIONS, type Assessment, type Correction, type Point, type Pose } from './types';
 
-export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Correction, width: number, height: number, time: number) {
+export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Correction, width: number, height: number, time: number, subtle = false) {
   const toPixel = (p: Point) => ({ x: p.x * width, y: p.y * height });
   const from = toPixel(pose[c.joint]), target = toPixel(c.target), pivot = toPixel(pose[c.anchor]);
   const size = Math.max(1, Math.min(width, height) / 650);
+  if (c.kind === 'instability') {
+    // This marks irregular motion, not a positional target to chase.
+    const radius = Math.max(5, Math.hypot(from.x - pivot.x, from.y - pivot.y) * 0.06);
+    ctx.save(); ctx.strokeStyle = '#ffa26b'; ctx.lineWidth = 1.5 * size;
+    for (let ring = 0; ring < 2; ring++) {
+      const phase = ((time / 900 + ring * 0.5) % 1);
+      ctx.globalAlpha = (1 - phase) * 0.55;
+      ctx.beginPath(); ctx.arc(from.x, from.y, radius * (1 + phase), 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore(); return;
+  }
   const segment = (a: { x: number; y: number }, b: { x: number; y: number }, color: string, lineWidth: number) => {
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.strokeStyle = color; ctx.lineWidth = lineWidth * size; ctx.stroke();
   };
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  // The only colored body segment is the one currently being corrected.
-  segment(pivot, from, '#ffa26b', 5);
-  segment(pivot, target, '#b9f5aa45', 15);
+  // Highlight this issue's affected segment and its target.
+  segment(pivot, from, '#ffa26b', subtle ? 3 : 5);
+  segment(pivot, target, '#b9f5aa45', subtle ? 5 : 15);
   segment(pivot, target, '#bcf6ac99', 2);
   ctx.beginPath(); ctx.arc(from.x, from.y, 7 * size, 0, Math.PI * 2);
   ctx.fillStyle = '#ffa26b'; ctx.fill(); ctx.strokeStyle = '#19251f'; ctx.lineWidth = 2 * size; ctx.stroke();
@@ -32,8 +43,8 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
     else ctx.lineTo(target.x, target.y);
     ctx.stroke();
   };
-  ctx.strokeStyle = '#0e1713dd'; ctx.lineWidth = 7 * size; drawArrow();
-  ctx.strokeStyle = '#bcf6ac'; ctx.lineWidth = 3 * size; drawArrow();
+  ctx.strokeStyle = '#0e1713dd'; ctx.lineWidth = (subtle ? 3 : 7) * size; drawArrow();
+  ctx.strokeStyle = '#bcf6ac'; ctx.lineWidth = (subtle ? 1.5 : 3) * size; drawArrow();
   const direction = Math.atan2(target.y - tangent.y, target.x - tangent.x);
   const tip = { x: target.x - Math.cos(direction) * 9 * size, y: target.y - Math.sin(direction) * 9 * size };
   ctx.beginPath(); ctx.moveTo(tip.x, tip.y);
@@ -51,7 +62,10 @@ export function drawCorrection(ctx: CanvasRenderingContext2D, pose: Pose, c: Cor
 }
 
 export function drawPose(ctx: CanvasRenderingContext2D, pose: Pose, width: number, height: number, assessment?: Assessment, time = 0, silhouette = false) {
-  if (pose.length < 33) return;
+  if (pose.length < 33) {
+    if (assessment?.squatVisual) drawSquatVisual(ctx, assessment.squatVisual, width, height, time);
+    return;
+  }
   const point = (p: Point) => ({ x: p.x * width, y: p.y * height });
   const line = (a: Point, b: Point, color: string, lineWidth: number) => {
     const x = point(a), y = point(b);
@@ -60,7 +74,7 @@ export function drawPose(ctx: CanvasRenderingContext2D, pose: Pose, width: numbe
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   const low = assessment && !assessment.ready;
   const color = '#f0f5ef';
-  ctx.globalAlpha = low ? 0.45 : 1;
+  ctx.globalAlpha = low && !assessment?.squatVisual ? 0.45 : 1;
   if (silhouette) {
     for (const [a, b] of CONNECTIONS) line(pose[a], pose[b], '#9bb1a016', Math.max(12, width * 0.039));
   }
@@ -77,5 +91,48 @@ export function drawPose(ctx: CanvasRenderingContext2D, pose: Pose, width: numbe
     ctx.fillStyle = '#161e1a'; ctx.fill(); ctx.strokeStyle = color; ctx.lineWidth = 1.7; ctx.stroke();
   }
   ctx.restore();
-  if (assessment?.correction && !low) drawCorrection(ctx, pose, assessment.correction, width, height, time);
+  if (assessment?.squatVisual) drawSquatVisual(ctx, assessment.squatVisual, width, height, time);
+  if (assessment && !low) {
+    for (const correction of assessment.corrections ?? (assessment.correction ? [assessment.correction] : [])) {
+      drawCorrection(ctx, pose, correction, width, height, time, !!assessment.squatVisual);
+    }
+  }
+}
+
+export function drawSquatVisual(ctx: CanvasRenderingContext2D, visual: NonNullable<Assessment['squatVisual']>, width: number, height: number, time: number) {
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const pulse = 0.45 + 0.2 * Math.sin(time / 350);
+  for (let index = 0; index < visual.reference.length; index++) {
+    const ghost = visual.reference[index];
+    // Start and return share the same planted-foot geometry; distinct colors and
+    // travelling pulses show the out-and-back sequence without displacing feet.
+    ctx.strokeStyle = index === 2 ? '#8acfff' : '#bcf6ac';
+    ctx.globalAlpha = index === 0 ? pulse : 0.18;
+    ctx.lineWidth = index === 2 ? 1 : 2;
+    ctx.setLineDash(index === 2 ? [3, 7] : []);
+    for (const [a, b] of CONNECTIONS) if (ghost[a]?.visibility && ghost[b]?.visibility) {
+      ctx.beginPath(); ctx.moveTo(ghost[a].x * width, ghost[a].y * height); ctx.lineTo(ghost[b].x * width, ghost[b].y * height); ctx.stroke();
+    }
+  }
+  ctx.setLineDash([]);
+  if (visual.reference.length === 3) {
+    const [start, bottom, end] = visual.reference;
+    const phase = (time % 3600) / 1800;
+    const from = phase < 1 ? start[23] : bottom[23], to = phase < 1 ? bottom[23] : end[23];
+    const t = (1 - Math.cos(Math.PI * (phase % 1))) / 2;
+    ctx.globalAlpha = 0.35; ctx.strokeStyle = '#8acfff'; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]); ctx.lineDashOffset = -time / 100;
+    ctx.beginPath(); ctx.moveTo(start[23].x * width, start[23].y * height); ctx.lineTo(bottom[23].x * width, bottom[23].y * height); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 0.7; ctx.fillStyle = '#bcf6ac';
+    ctx.beginPath(); ctx.arc((from.x + (to.x - from.x) * t) * width, (from.y + (to.y - from.y) * t) * height, 4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 0.7;
+  for (const cue of visual.recovery) drawCorrection(ctx, visual.recoveryPose, cue, width, height, time, true);
+  if (visual.framing) {
+    ctx.globalAlpha = pulse; ctx.strokeStyle = '#8acfff'; ctx.lineWidth = 2;
+    for (const [x, y, sx, sy] of [[12, 12, 1, 1], [width - 12, 12, -1, 1], [12, height - 12, 1, -1], [width - 12, height - 12, -1, -1]]) {
+      ctx.beginPath(); ctx.moveTo(x + sx * 24, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * 24); ctx.stroke();
+    }
+  }
+  ctx.restore();
 }

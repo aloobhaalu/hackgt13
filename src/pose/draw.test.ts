@@ -32,3 +32,13 @@ test('confirmation never recolors the detected skeleton green', () => {
   drawPose(context, demoPose('curl', 1), 800, 600, { ...emptyAssessment(), ready: true, confirmed: true });
   assert.ok(colors.length > 0); assert.ok(colors.every(color => color === '#f0f5ef'));
 });
+
+test('every simultaneous correction draws its own target', () => {
+  const { calls, context } = recorder(), pose = demoPose('squat', 2);
+  const corrections: Correction[] = [
+    { id: 'torso', label: 'Torso', kind: 'rotation', anchor: 23, joint: 11, severity: 1, target: { ...pose[11], x: 0.35 } },
+    { id: 'depth', label: 'Depth', kind: 'translation', anchor: 25, joint: 23, severity: 1, target: { ...pose[23], y: 0.65 } },
+  ];
+  drawPose(context, pose, 800, 600, { ...emptyAssessment(), ready: true, correction: corrections[0], corrections });
+  for (const c of corrections) assert.ok(calls.some(call => call.name === 'arc' && call.args[0] === c.target.x * 800 && call.args[1] === c.target.y * 600));
+});

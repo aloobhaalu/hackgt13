@@ -69,13 +69,11 @@ function Session({ exercise, source, debug, end, retry, demoStart }: {
       {demo && <div className="stage-grid"/>}
       <canvas ref={canvasRef} className="pose-canvas" aria-label="White pose skeleton. Orange joint points toward a pulsing mint target when adjustment is needed."/>
       {status === 'running' && !paused && !showSetup && <>
-        <div className="alignment-indicator"><span>Form Alignment</span><strong>{a.score === null ? (a.debug.squat ? (a.debug.squat.state === 'WAITING_FOR_START_POSE' ? 'Ready' : '—') : (a.ready ? 'Ready' : '—')) : `${a.score}%`}</strong></div>
-        <div className="stage-bottom"><span className="rep-count"><strong>{String(a.reps).padStart(2, '0')}</strong> reps</span>{a.confirmed && <span className="correction-confirmed" aria-label={a.debug.squat?.state === 'VALID_REP' ? 'Squat completed' : 'Adjustment detected'}><Check size={19}/></span>}</div>
-        {a.framingWarning && <div className="reframe-hint"><Focus size={18}/> Keep shoulders, hips, knees and ankles in view.</div>}
-        {a.debug.squat?.rotateSideways && !a.framingWarning && <div className="reframe-hint" role="status"><RotateCcw size={18}/> Rotate sideways</div>}
-        {a.debug.squat && !a.framingWarning && !a.debug.squat.rotateSideways && <div className="reframe-hint" role="status">{!a.debug.squat.trackingReliable ? a.debug.squat.reason : a.debug.squat.state === 'VALID_REP' ? 'Squat completed' : a.debug.squat.state === 'WAITING_FOR_START_POSE' ? (a.debug.squat.baselineDetected ? 'Ready — begin your squat' : 'Stand upright briefly to calibrate') : a.debug.squat.state === 'DESCENDING' ? 'Squat detected — lowering' : a.debug.squat.state === 'BOTTOM' ? 'Bottom detected' : a.debug.squat.state === 'ASCENDING' ? 'Squat detected — rising' : a.debug.squat.reason}</div>}
+        {(exercise !== 'squat' || a.score !== null) && <div className="alignment-indicator"><span>{exercise !== 'squat' && 'Form Alignment'}</span><strong>{a.score === null ? (a.ready ? 'Ready' : '—') : `${a.score}%`}</strong></div>}
+        {(exercise !== 'squat' || a.reps > 0) && <div className="stage-bottom"><span className="rep-count" aria-label={`${a.reps} completed repetitions`}><strong>{String(a.reps).padStart(2, '0')}</strong>{exercise !== 'squat' && ' reps'}</span>{exercise !== 'squat' && a.confirmed && <span className="correction-confirmed" aria-label="Adjustment detected"><Check size={19}/></span>}</div>}
+        {exercise !== 'squat' && a.framingWarning && <div className="reframe-hint"><Focus size={18}/> Keep shoulders, hips, knees and ankles in view.</div>}
       </>}
-      {showSetup && !paused && status !== 'error' && <div className="quick-setup" role="status">
+      {exercise !== 'squat' && showSetup && !paused && status !== 'error' && <div className="quick-setup" role="status">
         <Camera size={26}/><div className="body-frame"><svg viewBox="0 0 70 126" aria-hidden="true"><circle cx="35" cy="17" r="9"/><path d="M35 29V68M16 37H54M16 37L10 67M54 37L60 67M35 68L21 107M35 68L49 107"/></svg><span className="frame-corner tl"/><span className="frame-corner tr"/><span className="frame-corner bl"/><span className="frame-corner br"/></div><div><strong>{EXERCISES[exercise].angle}</strong><span>Shoulders to ankles in view</span></div>
       </div>}
       {status === 'loading' && !hasVideo && <div className="stage-overlay"><div className="loader"><Camera size={30}/></div><p role="status">{message}</p></div>}

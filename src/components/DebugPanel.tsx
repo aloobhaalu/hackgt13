@@ -1,4 +1,5 @@
 import type { Assessment } from '../pose/types';
+import { EXERCISES } from '../config';
 
 export default function DebugPanel({ assessment: a, source, cameraStatus, demoStart, retry }: {
   assessment: Assessment; source: 'camera' | 'demo'; cameraStatus: string;
@@ -21,6 +22,14 @@ export default function DebugPanel({ assessment: a, source, cameraStatus, demoSt
         <dt>Side-on</dt><dd>{String(a.debug.squat.sideOn)}</dd>
         <dt>Shoulder / hip spread</dt><dd>{a.debug.squat.shoulderRatio?.toFixed(3) ?? '—'} / {a.debug.squat.hipRatio?.toFixed(3) ?? '—'}</dd>
         <dt>Tracking reliable</dt><dd>{String(a.debug.squat.trackingReliable)}</dd>
+        <dt>Filtered landmark confidence</dt><dd>{a.debug.squat.landmarkConfidence.toFixed(3)}</dd>
+        <dt>Hold confirmation</dt><dd>{Math.round(a.debug.squat.holdConfirmationMs)} ms</dd>
+        <dt>Last hold evaluation</dt><dd>{a.debug.squat.evaluatedAt?.toFixed(0) ?? 'Not evaluated'}</dd>
+        <dt>Active corrections</dt><dd>{a.debug.squat.activeCorrections.join(', ') || 'None'}</dd>
+        <dt>Heel lift / leg length</dt><dd>{a.debug.squat.heelLift?.lift?.toFixed(3) ?? 'Unavailable'}</dd>
+        <dt>Heel tracking</dt><dd>{a.debug.squat.heelLift?.reason ?? 'Unavailable'}</dd>
+        <dt>Standing foot baseline</dt><dd><pre>{JSON.stringify(a.debug.squat.heelLift?.baseline ?? null, null, 2)}</pre></dd>
+        <dt>Standing baseline</dt><dd><pre>{JSON.stringify(a.debug.squat.baseline, null, 2)}</pre></dd>
         <dt>Left / right knee</dt><dd>{a.debug.squat.leftKneeAngle?.toFixed(1) ?? '—'}° / {a.debug.squat.rightKneeAngle?.toFixed(1) ?? '—'}°</dd>
         <dt>Visible foot points</dt><dd>{a.debug.squat.footPoints} / 6</dd>
         <dt>Knee / hip angle</dt><dd>{a.debug.squat.kneeAngle?.toFixed(1) ?? '—'}° / {a.debug.squat.hipAngle?.toFixed(1) ?? '—'}°</dd>
@@ -31,6 +40,7 @@ export default function DebugPanel({ assessment: a, source, cameraStatus, demoSt
         <dt>Squat score status</dt><dd>{a.debug.squat.reason}</dd>
       </>}
     </dl>
+    {a.debug.squat && <details><summary>Squat thresholds — edit EXERCISES.squat in src/config.ts</summary><pre>{JSON.stringify(EXERCISES.squat, null, 2)}</pre></details>}
     <div className="debug-tables">
       <table><caption>Landmark confidence · * required for framing</caption><thead><tr><th>Landmark</th><th>Visibility</th><th>In frame</th></tr></thead><tbody>{a.debug.landmarks.map(p => <tr key={p.index}><td>{p.name}{p.required ? ' *' : ''}</td><td>{p.visibility.toFixed(2)}</td><td>{p.inFrame ? 'Yes' : 'No'}</td></tr>)}</tbody></table>
       <div><table><caption>Joint angles · degrees</caption><thead><tr><th>Measurement</th><th>Value</th></tr></thead><tbody>{Object.entries(a.debug.angles).map(([name, value]) => <tr key={name}><td>{name}</td><td>{value.toFixed(1)}</td></tr>)}</tbody></table>

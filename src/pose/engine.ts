@@ -1,6 +1,7 @@
-﻿import { EXERCISES, SCORE_RANGES, TRACKING, type ExerciseId } from '../config';
+import { EXERCISES, SCORE_RANGES, TRACKING, type ExerciseId } from '../config';
 import type { Assessment, Correction, DebugData, Point, Pose, ScoreComponent } from './types';
 import { SquatEvaluator } from './squat';
+import { SquatVisuals } from './squatVisual';
 
 export const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 export function angle(a: Point, b: Point, c: Point) {
@@ -16,8 +17,8 @@ export const emptyAssessment = (reason = 'Looking for movement'): Assessment => 
 });
 const BODY = [11, 12, 23, 24, 25, 26, 27, 28];
 const NAMES: Record<number, string> = { 11: 'Left shoulder', 12: 'Right shoulder', 13: 'Left elbow', 14: 'Right elbow', 15: 'Left wrist', 16: 'Right wrist', 23: 'Left hip', 24: 'Right hip', 25: 'Left knee', 26: 'Right knee', 27: 'Left ankle', 28: 'Right ankle' };
-const inFrame = (p: Point | undefined) => !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= -TRACKING.frameTolerance && p.x <= 1 + TRACKING.frameTolerance && p.y >= -TRACKING.frameTolerance && p.y <= 1 + TRACKING.frameTolerance;
-const visible = (p: Point | undefined) => inFrame(p) && p!.visibility >= TRACKING.visibility;
+const inFrame = (p: Point | undefined, tolerance: number = TRACKING.frameTolerance) => !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= -tolerance && p.x <= 1 + tolerance && p.y >= -tolerance && p.y <= 1 + tolerance;
+const visible = (p: Point | undefined, cfg: { visibility: number; frameTolerance: number } = TRACKING) => inFrame(p, cfg.frameTolerance) && p!.visibility >= cfg.visibility;
 
 export function choosePose(poses: Pose[]) {
   const ranked = poses.map((pose, index) => ({ pose, index })).filter(({ pose }) => BODY.every(i => pose[i])).map(({ pose: p, index }) => {
@@ -31,17 +32,18 @@ export function choosePose(poses: Pose[]) {
 
 /** Face, hands, centering and apparent body size are deliberately NOT framing requirements. */
 export function framing(p: Pose, id: ExerciseId) {
+  const cfg = id === 'squat' ? EXERCISES.squat : TRACKING;
   const sides = [[11, 23, 25, 27], [12, 24, 26, 28]];
-  const quality = (indices: number[]) => Math.min(...indices.map(i => visible(p[i]) ? p[i].visibility : 0));
+  const quality = (indices: number[]) => Math.min(...indices.map(i => visible(p[i], cfg) ? p[i].visibility : 0));
   const side = quality(sides[1]) > quality(sides[0]) ? 1 : 0;
   // In profile, the far side is often naturally occluded. Require one complete camera-facing chain.
   const required = id === 'curl' ? BODY : sides[side];
   const confidence = required.reduce((sum, i) => sum + (p[i]?.visibility ?? 0), 0) / required.length;
-  const missing = required.filter(i => !visible(p[i]));
-  const outside = missing.some(i => p[i] && p[i].visibility >= TRACKING.visibility && !inFrame(p[i]));
+  const missing = required.filter(i => !visible(p[i], cfg));
+  const outside = missing.some(i => p[i] && p[i].visibility >= cfg.visibility && !inFrame(p[i], cfg.frameTolerance));
   const landmarks = Object.entries(NAMES).map(([key, name]) => {
     const index = Number(key);
-    return { index, name, visibility: p[index]?.visibility ?? 0, inFrame: inFrame(p[index]), required: required.includes(index) };
+    return { index, name, visibility: p[index]?.visibility ?? 0, inFrame: inFrame(p[index], cfg.frameTolerance), required: required.includes(index) };
   });
   return { ok: !missing.length, confidence, side, outside, landmarks, missing };
 }
@@ -49,6 +51,7 @@ export function framing(p: Pose, id: ExerciseId) {
 /** Stateful, memory-only analysis. No timers or synthetic data generate scores here. */
 export class CoachEngine {
   private squat = new SquatEvaluator();
+  private squatVisuals = new SquatVisuals();
   private smooth: Pose = [];
   private framedAt: number | null = null;
   private lostAt: number | null = null;
@@ -81,6 +84,7 @@ export class CoachEngine {
   }
 
   interrupt(reason = 'Assessment paused'): Assessment {
+    this.squatVisuals.reset();
     this.resetEvaluation(); this.framedAt = null; this.lostAt = null;
     this.acquired = false; this.smooth = []; this.side = null;
     const result = { ...emptyAssessment(reason), reps: this.reps };
@@ -89,10 +93,21 @@ export class CoachEngine {
   }
 
   update(raw: Pose | undefined, now: number, aspect = 1, ambiguous = false, world?: Pose): { pose: Pose; assessment: Assessment } {
+    const output = this.analyze(raw, now, aspect, ambiguous, world);
+    if (this.id === 'squat') {
+      output.assessment.squatVisual = ambiguous ? { reference: [], recovery: [], recoveryPose: [], framing: true } : this.squatVisuals.update(output.pose, output.assessment, aspect, now);
+      if (output.assessment.debug.squat?.state !== 'HOLDING') output.assessment.score = null;
+    }
+    return output;
+  }
+
+  private analyze(raw: Pose | undefined, now: number, aspect: number, ambiguous: boolean, world?: Pose): { pose: Pose; assessment: Assessment } {
+    const tracking = this.id === 'squat' ? EXERCISES.squat : TRACKING;
+    const smoothing = this.id === 'squat' ? EXERCISES.squat.landmarkSmoothing : TRACKING.smoothing;
     const frame = framing(raw ?? [], this.id);
     if (!raw || ambiguous || !frame.ok) {
       this.lostAt ??= now;
-      const sustained = now - this.lostAt >= TRACKING.framingLossMs;
+      const sustained = now - this.lostAt >= tracking.framingLossMs;
       if (sustained) { this.acquired = false; this.side = null; }
       this.framedAt = null; this.smooth = []; this.resetEvaluation();
       // Confidence loss suppresses scores immediately. Reframing is only shown for sustained cropping.
@@ -103,10 +118,10 @@ export class CoachEngine {
     }
     this.lostAt = null;
     this.framedAt ??= now;
-    if (!this.acquired && now - this.framedAt >= TRACKING.framingHoldMs) this.acquired = true;
+    if (!this.acquired && now - this.framedAt >= tracking.framingHoldMs) this.acquired = true;
     this.smooth = raw.map((p, i) => {
       const old = this.smooth[i];
-      return old ? { ...p, x: old.x + (p.x - old.x) * TRACKING.smoothing, y: old.y + (p.y - old.y) * TRACKING.smoothing } : { ...p };
+      return old ? { ...p, x: old.x + (p.x - old.x) * smoothing, y: old.y + (p.y - old.y) * smoothing } : { ...p };
     });
     const base = { ...emptyAssessment('Checking frame'), confidence: frame.confidence, reps: this.reps, debug: { ...emptyDebug('Acquiring full-body landmarks for 500 ms'), landmarks: frame.landmarks } };
     if (!this.acquired) {
@@ -114,33 +129,37 @@ export class CoachEngine {
       return { pose: this.smooth, assessment: base };
     }
 
-    if (this.id === 'squat' && this.side !== null && ![11, 23, 25, 27].every(i => visible(raw[i + this.side!]))) {
+    if (this.id === 'squat' && this.side !== null && ![11, 23, 25, 27].every(i => visible(raw[i + this.side!], tracking))) {
       const result = this.squat.suspend('Camera-facing landmarks briefly occluded', now);
       if (result.debug.state === 'FRAME_INVALID') this.side = null;
       return { pose: this.smooth, assessment: { ...base, reps: result.reps, reason: result.debug.reason,
         debug: { ...base.debug, squat: result.debug, reason: result.debug.reason } } };
     }
-    if (this.side !== null && ![11, 23, 25, 27].every(i => visible(raw[i + this.side!]))) this.side = null;
+    if (this.side !== null && ![11, 23, 25, 27].every(i => visible(raw[i + this.side!], tracking))) this.side = null;
     this.side ??= frame.side;
     if (this.id === 'squat') {
       const result = this.squat.update(raw, now, aspect, this.side, world);
       // Anchor squat guidance to the same smoothed skeleton that is rendered.
-      const cue = result.correction;
-      if (cue?.id === 'depth') {
-        result.correction = { ...cue, target: { ...cue.target, x: this.smooth[cue.joint].x,
+      result.corrections = result.corrections.map(cue => {
+      if (cue?.id === 'depth' || cue?.id === 'heel-lift') {
+        return { ...cue, target: { ...cue.target, x: this.smooth[cue.joint].x,
           y: this.smooth[cue.joint].y + cue.target.y - raw[cue.joint].y } };
       } else if (cue?.kind === 'rotation') {
         const dx = (cue.target.x - raw[cue.anchor].x) * aspect, dy = cue.target.y - raw[cue.anchor].y;
         const direction = Math.hypot(dx, dy);
         const segment = Math.hypot((this.smooth[cue.joint].x - this.smooth[cue.anchor].x) * aspect, this.smooth[cue.joint].y - this.smooth[cue.anchor].y);
-        if (direction > 0) result.correction = { ...cue, target: { ...cue.target,
+        if (direction > 0) return { ...cue, target: { ...cue.target,
           x: this.smooth[cue.anchor].x + dx / direction * segment / aspect, y: this.smooth[cue.anchor].y + dy / direction * segment } };
       }
+        return cue;
+      });
+      result.correction = result.corrections[0] ?? null;
       const state = result.debug.state;
       return { pose: this.smooth, assessment: {
         ...base, ready: result.debug.trackingReliable && state !== 'FRAME_INVALID', reason: result.debug.reason,
         reps: result.reps, score: result.score, correction: result.correction, confirmed: result.confirmed,
-        phase: state === 'DESCENDING' || state === 'BOTTOM' ? 'Lower' : state === 'ASCENDING' ? 'Rise' : 'Ready',
+        corrections: result.corrections,
+        phase: state === 'HOLDING' ? 'Hold' : state === 'DESCENDING' ? 'Lower' : state === 'ASCENDING' ? 'Rise' : 'Ready',
         debug: { ...base.debug, squat: result.debug, reason: result.debug.reason, validMovement: result.evaluating,
           rawScore: result.rawScore, stableFrames: result.stableFrames, components: result.components,
           angles: { knee: result.debug.kneeAngle ?? 0, hip: result.debug.hipAngle ?? 0, torsoLean: result.debug.torsoTilt ?? 0 } },

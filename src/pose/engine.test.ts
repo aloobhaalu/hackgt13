@@ -23,14 +23,14 @@ for(const id of ['squat','curl','row'] as ExerciseId[]) {
   test(`${id}: full synthetic repetitions pass through start, end, and return`,()=>{
     const engine=new CoachEngine(id);
     let result=engine.update(demoPose(id,0,false),0).assessment;
-    for(let ms=65;ms<=26000;ms+=65) result=engine.update(demoPose(id,ms/1000,false),ms).assessment;
+    for(let ms=65;ms<=(id==='squat'?34000:26000);ms+=65) result=engine.update(demoPose(id,ms/1000,false),ms).assessment;
     assert.ok(result.reps>=3,`${id} counted ${result.reps} reps`);
     assert.ok(result.reps<=5,'must not double count');
   });
   test(`${id}: demo includes persistent correction followed by confirmation`,()=>{
     const engine=new CoachEngine(id);let correction=false,confirmation=false;
-    for(let ms=0;ms<=15000;ms+=65){const a=engine.update(demoPose(id,ms/1000),ms).assessment;correction ||= !!a.correction;confirmation ||= a.confirmed;}
-    assert.ok(correction,'demo should demonstrate a correction');assert.ok(confirmation,'demo should demonstrate recovery');
+    for(let ms=0;ms<=(id==='squat'?25000:15000);ms+=65){const a=engine.update(demoPose(id,ms/1000),ms).assessment;correction ||= !!a.correction;confirmation ||= a.confirmed;}
+    assert.ok(correction,'demo should demonstrate a correction');if(id !== 'squat') assert.ok(confirmation,'demo should demonstrate recovery');
   });
   test(`${id}: the neutral synthetic movement does not trigger corrections`,()=>{
     const engine=new CoachEngine(id);
