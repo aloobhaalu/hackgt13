@@ -1,11 +1,15 @@
 import type { ExerciseId } from '../config';
 import type { Point, Pose } from './types';
+import { curlWrist } from './curlVisual';
 /** Synthetic landmarks only. No recorded person or camera data. */
 export function demoPose(id: ExerciseId, seconds: number, withErrors = true): Pose {
   const p: Pose=Array.from({length:33},()=>({x:0.5,y:0.5,z:0,visibility:0.98}));
   const set=(i:number,x:number,y:number)=>{p[i]={x,y,z:0,visibility:0.98};};
-  const cycle=(seconds%5)/5, t=(1-Math.cos(cycle*Math.PI*2))/2;
-  const error=withErrors && Math.floor(seconds/5)%3===1 ? Math.sin(cycle*Math.PI)**2 : 0;
+  // Squat demonstrations include a genuine upright hold for baseline acquisition.
+  const period=id==='squat'?10:5, local=seconds%period, cycle=local/period;
+  const ease=(v:number)=>(1-Math.cos(Math.PI*Math.max(0,Math.min(1,v))))/2;
+  const t=id==='squat'?(local<2.6?0:local<4.2?ease((local-2.6)/1.6):local<7.4?1:local<9?1-ease((local-7.4)/1.6):0):(1-Math.cos(cycle*Math.PI*2))/2;
+  const error=withErrors && Math.floor(seconds/period)%3===1 ? (id==='squat'?t:Math.sin(cycle*Math.PI)**2) : 0;
   if(id==='squat') {
     for(const side of [0,1]){
       const o=side*0.035;
@@ -17,17 +21,15 @@ export function demoPose(id: ExerciseId, seconds: number, withErrors = true): Po
     for(const side of [0,1]){
       const sign=side===0?-1:1, sway=error*.09;
       set(27+side,.5+sign*.10,.88);set(25+side,.5+sign*.085,.68);set(23+side,.5+sign*.065,.49);
-      set(11+side,.5+sign*.105+sway,.255);set(13+side,.5+sign*(.11+error*.075)+sway,.445);
-      const a=(15+(side===0?t:t)*135)*Math.PI/180;
-      set(15+side,p[13+side].x+sign*Math.sin(a)*.165,p[13+side].y+Math.cos(a)*.165);
+      set(11+side,.5+sign*.105+sway,.255);set(13+side,.5+sign*(.105+error*.075)+sway,.445);
+      p[15+side]=curlWrist(p[13+side],.165,t,'front',-sign);
     }
   } else {
-    for(const side of [0,1]){
-      const o=side*.025;
-      set(27+side,.76+o,.84);set(25+side,.62+o,.66);set(23+side,.38+o,.61);
-      set(11+side,.39+o+(1-t)*.04-error*.16,.32+error*.055);
-      set(13+side,p[11+side].x+.18-t*.19,p[11+side].y+.085+t*.11);
-      set(15+side,p[13+side].x+.17,p[13+side].y+.025-t*.10);
+    // Held high plank: hands and toes support a stable shoulder-to-ankle line.
+    for(const side of [0,1]) {
+      const o=side*.022;
+      set(11+side,.27+o,.38);set(13+side,.27+o,.5425);set(15+side,.27+o,.705);
+      set(23+side,.49+o,.5022+error*.07);set(25+side,.65+o,.5911);set(27+side,.81+o,.68);
     }
   }
   const head:Point={x:(p[11].x+p[12].x)/2,y:(p[11].y+p[12].y)/2-.095,visibility:.98};
