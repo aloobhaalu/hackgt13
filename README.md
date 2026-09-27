@@ -14,7 +14,7 @@ This felt personal to me. When I have exercised without knowing whether my postu
 
 ## What RepReady does
 
-RepReady makes real-time form guidance more accessible for people exercising independently. It tracks a user’s pose through a webcam and overlays visual targets directly onto their movement, helping them see where their body is aligned and where an adjustment may be needed. It also provides Form Alignment and a short session recap so users can recognize patterns in their movement. For this prototype, RepReady focuses on bodyweight squats, standing dumbbell curls, and high planks — common exercises where form issues can be hard to notice on your own. RepReady is an approachable visual starting point to help people move with more confidence and reduce avoidable form-related risk.
+RepReady makes real-time form guidance more accessible for people exercising independently. It tracks a user’s pose through a webcam and overlays visual targets directly onto their movement, helping them see where their body is aligned and where an adjustment may be needed. It also provides Form Alignment and a short session recap so users can recognize patterns in their movement. For this prototype, RepReady focuses on bodyweight squats, standing dumbbell curls, and high planks -- common exercises where form issues can be hard to notice on your own. RepReady is an approachable visual starting point to help people move with more confidence and reduce avoidable form-related risk.
 
 ## Process
 
