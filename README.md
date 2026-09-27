@@ -78,3 +78,5 @@ The production server serves the built frontend and recap endpoint at `http://12
 - The recap request contains derived aggregate session metrics, never webcam frames, recordings, screenshots, raw landmarks, or identity data
 - If Gemini is unavailable, slow, or returns invalid output, the app uses a deterministic local recap
 - No database or account is required
+
+**This project was developed by Ananya Bhargava (ananyabhargava12@gmail.com) during HackGT 13.**
