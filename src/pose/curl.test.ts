@@ -5,6 +5,7 @@ import { CoachEngine } from './engine';
 import { demoPose } from './demo';
 import { EXERCISES, type CameraView } from '../config';
 import type { Pose } from './types';
+import { coachingText } from './coachingText';
 
 // Independent fixed-length arm fixture, front flexion travels into depth like the same line as your upper arm, not sideways
 function frame(flex:number,view:CameraView,hipShift=0,raise=0,scale=1) {
@@ -23,6 +24,49 @@ function frame(flex:number,view:CameraView,hipShift=0,raise=0,scale=1) {
   return {pose,world:pose.map(p=>({...p}))};
 }
 const full=(t:number)=>t<3000?0:t<4500?(t-3000)/1500:t<5100?1:t<6800?1-(t-5100)/1700:0;
+for(const view of ['front','side'] as const)test(`curl ${view}: sustained elbow movement gets a live cue which clears when steady`,()=>{
+  const e=new CoachEngine('curl',view);let guided=false,last=e.interrupt();
+  for(let t=0;t<8300;t+=65) {
+    const f=frame(t<5100?full(t):1,view),shift=t>3000&&t<6200?.035*Math.sin((t-3000)/700*Math.PI*2):0;
+    for(const side of [0,1])for(const i of [13,15]) {
+      f.pose[i+side].x+=shift;f.world[i+side].x+=shift;
+    }
+    last=e.update(f.pose,t,1,false,f.world).assessment;
+    guided ||= coachingText(last,'curl',view).cues.includes('Keep your elbows still as you curl');
+    if(t>7400)assert.ok(!last.corrections?.some(c=>c.id.startsWith('elbow-motion')));
+  }
+  assert.ok(guided);
+});
+for(const view of ['front','side'] as const)test(`curl ${view}: continuous moderate-range curls count without an exact top pose or bottom pause`,()=>{
+  const e=new CoachEngine('curl',view);let last=e.interrupt();
+  for(let t=0;t<11400;t+=65) {
+    const flex=t<3000||t>=10500?0:.65*(1-Math.cos((t-3000)%2500/2500*Math.PI*2))/2;
+    const f=frame(flex,view);last=e.update(f.pose,t,1,false,f.world).assessment;
+  }
+  assert.equal(last.reps,3,JSON.stringify(last.debug.curlCycle));
+});
+
+for(const view of ['front','side'] as const)test(`curl ${view}: returning with elbow drift does not erase a completed curl`,()=>{
+  const e=new CoachEngine('curl',view);let last=e.interrupt();
+  for(let t=0;t<8500;t+=65) {
+    const f=frame(full(t),view),shift=t<3000?0:Math.min(1,(t-3000)/900)*.08;
+    for(const side of [0,1])for(const joint of [13,15]) {
+      const dx=(view==='side'?1:side===0?-1:1)*shift;
+      f.pose[joint+side].x+=dx;f.world[joint+side].x+=dx;
+    }
+    last=e.update(f.pose,t,1,false,f.world).assessment;
+  }
+  assert.equal(last.reps,1,JSON.stringify(last.debug.curlCycle));
+});
+
+for(const view of ['front','side'] as const)test(`curl ${view}: a slow next start cannot reuse the previous rep return allowance`,()=>{
+  const e=new CoachEngine('curl',view);let last=e.interrupt();
+  for(let t=0;t<16900;t+=65) {
+    const flex=t<8000?full(t):t<10500?0:t<11900?(t-10500)/1400*.2:t<13300?.2+(t-11900)/1400*.8:t<13800?1:t<15500?1-(t-13800)/1700:0;
+    const f=frame(flex,view);last=e.update(f.pose,t,1,false,f.world).assessment;
+  }
+  assert.equal(last.reps,2,JSON.stringify(last.debug.curlCycle));
+});
 for(const view of ['front','side'] as const) {
   test(`curl ${view}: calibrates once, coaches repeated full curls and does not fault controlled lowering`,()=>{
     const e=new CoachEngine('curl',view);let last=e.interrupt(),live=false;
@@ -31,7 +75,7 @@ for(const view of ['front','side'] as const) {
       if(last.debug.state==='CURLING_UP'){live=true;assert.notEqual(last.score,null);}
       assert.ok(!last.corrections?.some(c=>c.id.startsWith('bottom-range')),'normal controlled lowering is not an incomplete-range fault');
     }
-    assert.ok(live);assert.equal(last.debug.state,'READY');assert.ok(last.debug.curlCycle?.calibrated);
+    assert.ok(live);assert.equal(last.debug.state,'READY');assert.ok(last.debug.curlCycle?.calibrated);assert.equal(last.reps,2);
   });
   test(`curl ${view}: half lowering and recurl show a downward target and requires full lowering before the next curl`,()=>{
     const e=new CoachEngine('curl',view);let target=false,both=false,last=e.interrupt();
@@ -39,19 +83,19 @@ for(const view of ['front','side'] as const) {
       const flex=t<5100?full(t):t<6000?1-(t-5100)/1800:t<7000?.5:t<8000?.5+(t-7000)/2000:t<8500?1:t<10300?1-(t-8500)/1800:t<11000?0:full(t-11000);
       const f=frame(flex,view,view==='side'&&t>5600&&t<8500?.14:0);
       last=e.update(f.pose,t,1,false,f.world).assessment;
-      if(t>7600&&t<8300)assert.equal(last.debug.curlCycle?.validCycle,false);
+      if(t>7600&&t<8300){assert.equal(last.debug.curlCycle?.validCycle,false);assert.equal(last.reps,0);assert.equal(last.debug.repRejection?.category,'insufficient_range');}
       const cues=last.corrections?.filter(c=>c.id.startsWith('bottom-range'))??[];
       if(cues.length && t<8500){target=true;for(const c of cues){assert.ok(c.target.y>f.pose[c.joint].y);assert.equal(c.anchor,c.joint-2);assert.equal(c.kind,'translation');}assert.notEqual(last.score,null);}
       both ||= cues.length>0 && !!last.corrections?.some(c=>c.id==='torso');
       if(t>11000&&t<13500)assert.equal(cues.length,0,'returning down removes only the bottom correction');
     }
-    assert.ok(target);if(view==='side')assert.ok(both);assert.equal(last.debug.state,'READY');
+    assert.ok(target);if(view==='side')assert.ok(both);assert.equal(last.debug.state,'READY');assert.equal(last.reps,1);
   });
   test(`curl ${view}: static bends, tiny pulses and lateral raises cannot enable scoring`,()=>{
     for(const mode of ['static','tiny','raise']){const e=new CoachEngine('curl',view);
       for(let t=0;t<9000;t+=65){const flex=mode==='static'?.6:mode==='tiny'&&t>3000?.04*(1+Math.sin(t/500)):mode==='raise'?full(t):0;
         const f=frame(flex,view,0,mode==='raise'&&t>3000?75:0),a=e.update(f.pose,t,1,false,f.world).assessment;
-        assert.equal(a.score,null,mode);
+        assert.equal(a.score,null,mode);assert.equal(a.reps,0,mode);
       }
     }
   });
@@ -67,6 +111,33 @@ test('side backward lean and forward hips get separate baseline targets; front n
     }
     if(view==='side'){assert.ok(torso);assert.ok(hips);assert.ok(low);}
   }
+});
+
+for(const view of ['front','side'] as const)test(`curl ${view}: poor alignment still counts a full movement`,()=>{
+  const e=new CoachEngine('curl',view);let last=e.interrupt(),low=false,guided=false;
+  for(let t=0;t<8500;t+=65) {
+    const amount=t<3000?0:Math.min(1,(t-3000)/600)*Math.max(0,Math.min(1,(7300-t)/600));
+    const f=frame(full(t),view,view==='side'?.17*amount:0,view==='front'?52*amount:0);
+    last=e.update(f.pose,t,1,false,f.world).assessment;
+    if(last.score!==null){low ||= last.score<85;guided ||= !!last.corrections?.some(c=>view==='side'?c.id==='torso':c.id.startsWith('elbow-'));}
+    if(t<6200)assert.equal(last.reps,0);
+  }
+  assert.ok(low,'poor form lowers the live score');assert.ok(guided,'poor form keeps its visual correction');assert.equal(last.reps,1,JSON.stringify(last.debug.repRejection));assert.equal(last.debug.repRejection,null);
+});
+
+test('front curl calibrates visibly extended arms with elbow drift and keeps correcting that drift',()=>{
+  const e=new CoachEngine('curl','front');let last=e.interrupt(),guided=false;
+  for(let t=0;t<8500;t+=65) {
+    const f=frame(full(t),'front',0,40),r=(5+140*full(t))*Math.PI/180,tilt=40*Math.PI/180;
+    for(const side of [0,1]) {
+      const elbow=f.pose[13+side];
+      f.pose[15+side]={x:elbow.x+(side===0?-1:1)*Math.sin(tilt)*.128*Math.cos(r),y:elbow.y+Math.cos(tilt)*.128*Math.cos(r),z:-.128*Math.sin(r),visibility:.99};
+      f.world[15+side]={...f.pose[15+side]};
+    }
+    last=e.update(f.pose,t,1,false,f.world).assessment;
+    guided ||= last.score!==null&&!!last.corrections?.some(c=>c.id.startsWith('elbow-'));
+  }
+  assert.ok(guided);assert.equal(last.reps,1);
 });
 
 test('uncertain facing suppresses hip-direction targets and confidence loss clears range guidance',()=>{

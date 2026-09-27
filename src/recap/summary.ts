@@ -62,6 +62,8 @@ export class SessionMetrics<E extends ExerciseId = ExerciseId> {
         if(id==='torso')key=this.view==='side' && a.debug.angles.backwardLean>EXERCISES.curl.maxLean?'backwardLean':'torsoLean';
         if(id==='hip-shift' && this.view==='side')key='hipDrive';
         if(id==='upper-arm'||id.startsWith('elbow-'))key='elbowDrift';
+        if(id.startsWith('elbow-motion'))key='instability';
+        if(id.startsWith('curl-range'))key='partialRange';
         if(id.startsWith('bottom-range-'))key='incompleteLowering';
         if(id==='control')key='control';
         if(id==='forearm-path'||id.startsWith('hand-path-'))key='armPath';

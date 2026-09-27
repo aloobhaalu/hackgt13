@@ -5,6 +5,10 @@ export type Correction = {
   severity: number; kind: 'translation' | 'rotation' | 'instability';
 };
 export type ScoreComponent = { id: string; value: number | null; limit: number; error: number; score: number | null };
+export type RepRejection = {
+  category:'insufficient_range'|'missing_tracking'|'wrong_view'|'unrecognized_movement'|'interrupted';
+  reason:string;
+};
 export type SquatCycleDebug = {
   state:string; blockReason:string; lastFailure:string|null;
   calibrated:boolean; bottomConfirmed:boolean; ascentConfirmationMs:number;
@@ -16,6 +20,7 @@ export type CurlCycleDebug = {
 export type DebugData = {
   exercise?: string; view?: string; state?: string; viewValid?: boolean; trackingGapMs?:number;
   coachingEnabled?: boolean; scoringEnabled?: boolean; scoreUpdatedAt?: number | null;
+  repRejection?: RepRejection | null;
   curlCycle?:CurlCycleDebug;
   curlPartial?: { count:number; severityTotal:number; maxSeverity:number };
   squat?: SquatDebug; squatCycle?:SquatCycleDebug;
@@ -48,6 +53,7 @@ export type SquatDebug = {
 export type Assessment = {
   ready: boolean; confidence: number; reason: string; score: number | null;
   scoreStatus?: 'ready' | 'uncertain' | 'live'; holdMs?: number;
+  reps?: number;
   phase: 'Ready' | 'Lower' | 'Hold' | 'Rise' | 'Curl' | 'Release' | 'Pull' | 'Return';
   correction: Correction | null; confirmed: boolean;
   corrections?: Correction[];

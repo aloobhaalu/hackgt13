@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build && npm run build:server",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "tsx --test src/pose/engine.test.ts src/pose/curl.test.ts src/pose/squat.test.ts src/pose/draw.test.ts src/camera.test.ts src/App.test.tsx src/recap/recap.test.ts server/app.test.ts",
+    "test": "tsx --test src/pose/engine.test.ts src/pose/curl.test.ts src/pose/squat.test.ts src/pose/draw.test.ts src/pose/coachingText.test.ts src/camera.test.ts src/App.test.tsx src/recap/recap.test.ts server/app.test.ts",
     "build:server": "esbuild server/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist-server/index.mjs",
     "start": "node dist-server/index.mjs"
   },

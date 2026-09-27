@@ -26,9 +26,9 @@ export default function SessionRecap({summary,recap,debug,done,diagnostics}:{sum
         <h2 id="recap-title">{recap?.headline??'Preparing recap\u2026'}</h2>
         {recap&&recap.tips.length>0&&<ul>{recap.tips.map(tip=><li key={tip}>{tip}</li>)}</ul>}
       </div>
-      <div className={`recap-totals${empty?' is-empty':''}`}>{summary.exercise==='plank' ? <>
+      {summary.exercise==='plank'&&<div className={`recap-totals${empty?' is-empty':''}`}>
         <span><strong>{holdTime(summary.bestHoldMs)}</strong> Best Hold</span><span><strong>{holdTime(summary.totalHoldMs)}</strong> Total Hold Time</span>
-      </> : <><span><strong>{summary.averageAlignment===null?'—':`${Math.round(summary.averageAlignment)}%`}</strong> Average Form Alignment</span><span><strong>{summary.bestAlignment===null?'—':`${Math.round(summary.bestAlignment)}%`}</strong> Best Form Alignment</span></>}</div>
+      </div>}
       {debug&&<RecapPayload summary={summary} diagnostics={diagnostics} ended/>}
       <button className="primary-button recap-done" onClick={done} ref={button}>Done</button>
     </section>

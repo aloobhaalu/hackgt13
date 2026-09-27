@@ -1,4 +1,8 @@
 import HoldTimer from './components/HoldTimer';
+import LiveFeedback from './components/LiveFeedback';
+import SessionRecap from './components/SessionRecap';
+import { SessionMetrics } from './recap/summary';
+import { emptyAssessment } from './pose/engine';
 import { createGeminiPayload } from './recap/payload';
 import { parseSummary } from './recap/summary';
 import { localRecap } from './recap/content';
@@ -34,6 +38,38 @@ function setup(query = '') {
   const root = createRoot(window.document.getElementById('root')!);
   return { dom, window, root, calls: () => calls, deny: () => deny(Object.assign(new Error('Denied'), { name: 'NotAllowedError' })) };
 }
+
+test('live text displays concurrent local cues and clears stale corrections when tracking is lost',async()=>{
+  const ctx=setup();
+  const assessment={...emptyAssessment(),ready:true,score:48,debug:{...emptyAssessment().debug,coachingEnabled:true,viewValid:true},corrections:[
+    {id:'elbow-13',label:'',joint:13,anchor:11,target:{x:.4,y:.4,visibility:1},kind:'translation' as const,severity:.5},
+    {id:'elbow-motion-0',label:'',joint:13,anchor:11,target:{x:.4,y:.4,visibility:1},kind:'instability' as const,severity:.5},
+  ]};
+  try {
+    await act(async()=>ctx.root.render(<LiveFeedback assessment={assessment} exercise="curl" view="front"/>));
+    const feedback=ctx.window.document.querySelector('.live-feedback')!;
+    assert.match(feedback.textContent!,/Keep your elbows close to your torso/);
+    assert.match(feedback.textContent!,/Keep your elbows still as you curl/);
+    assert.equal(feedback.querySelectorAll('li').length,2);assert.equal(feedback.querySelector('button'),null);
+    await act(async()=>ctx.root.render(<LiveFeedback assessment={emptyAssessment()} exercise="curl" view="front"/>));
+    assert.equal(ctx.window.document.querySelectorAll('.live-feedback li').length,0);
+    assert.match(ctx.window.document.querySelector('.live-feedback')!.textContent!,/Keep your head, shoulders, elbows, hands and hips visible/);
+  }finally{await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
+});
+
+test('a measured squat or curl recap omits average and best alignment statistics',async()=>{
+  const ctx=setup();
+  try {
+    for(const exercise of ['squat','curl'] as const) {
+      const summary={...new SessionMetrics(exercise,'front','demo').snapshot(),averageAlignment:82,bestAlignment:90,validScoreSamples:5,enoughValidData:true};
+      await act(async()=>ctx.root.render(<SessionRecap summary={summary} recap={{headline:'Session complete',tips:['Keep your movement controlled']}} debug={false} done={()=>{}}/>));
+      const modal=ctx.window.document.querySelector('.session-recap')!;
+      assert.equal(modal.querySelector('.recap-totals'),null);
+      assert.doesNotMatch(modal.textContent!,/Average Form Alignment|Best Form Alignment|82%|90%/);
+      assert.match(modal.textContent!,/Session complete/);assert.equal(modal.querySelectorAll('button').length,1);
+    }
+  }finally{await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
+});
 
 test('all three complete cards, including canvas/title/arrow, open view selection, then request camera synchronously', async () => {
   const ctx = setup();
@@ -196,7 +232,8 @@ test('camera session locks one target, hides the guide and clears feedback inste
     const guide=()=>ctx.window.document.querySelector('.target-guide')!;
     assert.equal(guide().getAttribute('data-visible'),'true');
     for(let now=65;now<2600;now+=65){detections=now%2?[person,background]:[background,person];await advance(now);if(now<500){assert.equal(moves.length,0);assert.equal(ctx.window.document.querySelector('.alignment-indicator'),null);}}
-    assert.equal(guide().getAttribute('data-visible'),'false');assert.equal(ctx.window.document.querySelector('.alignment-indicator')?.textContent,'Ready');
+    assert.equal(guide().getAttribute('data-visible'),'false');assert.equal(ctx.window.document.querySelector('.alignment-indicator')?.textContent,'Hold still');
+    assert.match(ctx.window.document.querySelector('.live-feedback')?.textContent??'',/until Ready appears/);
     assert.ok(moves.length>0);assert.ok(moves.every(x=>x<.7*720),'background skeleton is never rendered');
     detections=[background];await advance(2600);
     assert.equal(moves.length,0);assert.equal(ctx.window.document.querySelector('.alignment-indicator'),null);assert.equal(guide().getAttribute('data-visible'),'false');
@@ -232,9 +269,9 @@ test('End stops coaching before one request and keeps every exercise in a modal 
       assert.equal(modal.getAttribute('aria-modal'),'true');assert.match(modal.textContent!,/Preparing recap/);
       assert.equal(modal.querySelectorAll('button').length,1);assert.equal(modal.querySelector('button')?.textContent,'Done');
       assert.equal(ctx.window.document.activeElement,modal.querySelector('button'));
-      assert.equal(modal.querySelector('.recap-payload'),null);assert.ok(modal.querySelector('.recap-totals.is-empty'));
+      assert.equal(modal.querySelector('.recap-payload'),null);
       if(exercise==='plank'){assert.match(modal.textContent!,/Best Hold/);assert.match(modal.textContent!,/Total Hold Time/);assert.doesNotMatch(modal.textContent!,/Reps/);}
-      else {assert.match(modal.textContent!,/Average Form Alignment/);assert.match(modal.textContent!,/Best Form Alignment/);assert.doesNotMatch(modal.textContent!,/Reps/);}
+      else {assert.equal(modal.querySelector('.recap-totals'),null);assert.doesNotMatch(modal.textContent!,/Average Form Alignment|Best Form Alignment|Reps/);}
       await act(async()=>ctx.window.dispatchEvent(new ctx.window.KeyboardEvent('keydown',{key:'d',bubbles:true})));
       const preview=modal.querySelector('.recap-payload pre')!;assert.ok(preview);
       assert.deepEqual(JSON.parse(preview.textContent!),createGeminiPayload(payload));
@@ -303,7 +340,7 @@ test('plank keeps its hold timer without repetition statistics',async()=>{
 });
 
 for(const exercise of ['squat','curl'] as const)for(const view of ['front','side'] as const)
-test(`camera pipeline with landmark fixtures: ${view} ${exercise} keeps live alignment without counters across brief tracking dips`,async()=>{
+test(`camera pipeline with landmark fixtures: ${view} ${exercise} counts completed movements across brief tracking dips`,async()=>{
   const ctx=setup(),oldResolver=FilesetResolver.forVisionTasks,oldCreate=PoseLandmarker.createFromOptions;
   const frames=new Map<number,FrameRequestCallback>();let next=0,now=0;
   let poses:Pose[]=[],worlds:Pose[]=[];
@@ -324,23 +361,35 @@ test(`camera pipeline with landmark fixtures: ${view} ${exercise} keeps live ali
     const choice=Array.from(ctx.window.document.querySelectorAll('.view-choice')).find(b=>b.textContent!.toLowerCase().includes(`${view} view`))!;
     await act(async()=> (choice as HTMLElement).click());
     for(const selector of ['video','.pose-canvas'])assert.equal(ctx.window.getComputedStyle(ctx.window.document.querySelector(selector)!).transform,'scaleX(-1)');
-    let sawScore=false;
+    let sawScore=false,previousCount=0;
     for(now=65;now<11000;now+=65) {
-      const f=repFrame(exercise,view,repMotion(now));
+      const quickSquat=exercise==='squat';
+      const depth=quickSquat&&view==='front'?.36:1;
+      const f=repFrame(exercise,view,depth*repMotion(quickSquat?now+2600:now));
       const jointDip=now>=5500&&now<5565,targetDip=now>=8500&&now<8565;
+      if(quickSquat&&now===2405)for(const i of [25,26])f.world[i].visibility=.1;
       if(jointDip){const i=exercise==='curl'?15:27;f.pose[i].visibility=f.pose[i+1].visibility=.1;}
       poses=targetDip?[]:[f.pose];worlds=targetDip?[]:[f.world];
       const queued=[...frames.values()];frames.clear();await act(async()=>{queued.forEach(fn=>fn(now));});
       const alignment=ctx.window.document.querySelector('.alignment-indicator')?.textContent;
       sawScore ||= !!alignment?.includes('%');
+      if(quickSquat&&now>2000&&now<7000)assert.ok(!['Stand tall','Hold still'].includes(alignment??''));
       if(jointDip||targetDip)assert.ok(!alignment?.includes('%'),'no score during uncertain tracking');
-      assert.equal(ctx.window.document.querySelector('.rep-count, .hold-timer'),null);
+      const counter=ctx.window.document.querySelector('.rep-count');
+      if(counter){const count=Number(counter.querySelector('strong')!.textContent);assert.ok(count>=previousCount&&count<=2);previousCount=count;assert.doesNotMatch(counter.textContent!,/Quality/);}
     }
-    assert.ok(sawScore);
+    assert.ok(sawScore);assert.equal(previousCount,2);
+    const stage=ctx.window.document.querySelector('.camera-stage')!;
+    const feedback=ctx.window.document.querySelector('.live-feedback')!;
+    assert.ok(feedback);
+    assert.equal(stage.previousElementSibling,feedback.parentElement,'coaching text sits above the camera in normal page flow');
+    assert.equal(stage.contains(feedback),false,'text does not cover the camera');
+    assert.ok(parseFloat(ctx.window.getComputedStyle(feedback).fontSize)>=18,'coaching text is readable at laptop distance');
+    assert.ok(stage.querySelector('.alignment-indicator'),'alignment stays in the camera');
     assert.notEqual(ctx.window.getComputedStyle(ctx.window.document.querySelector('.alignment-indicator')!).transform,'scaleX(-1)');
     await act(async()=> (Array.from(ctx.window.document.querySelectorAll('button')).find(b=>b.textContent?.trim()==='Pause') as HTMLElement).click());
     await act(async()=> (Array.from(ctx.window.document.querySelectorAll('button')).find(b=>b.textContent?.trim()==='Resume') as HTMLElement).click());
     for(;now<12000;now+=65){const f=repFrame(exercise,view,0);poses=[f.pose];worlds=[f.world];const queued=[...frames.values()];frames.clear();await act(async()=>queued.forEach(fn=>fn(now)));}
-    assert.equal(ctx.window.document.querySelector('.rep-count, .hold-timer'),null);
+    assert.equal(ctx.window.document.querySelector('.rep-count strong')?.textContent,'02');
   }finally{FilesetResolver.forVisionTasks=oldResolver;PoseLandmarker.createFromOptions=oldCreate;await act(async()=>ctx.root.unmount());ctx.dom.window.close();}
 });

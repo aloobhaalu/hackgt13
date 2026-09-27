@@ -1,8 +1,9 @@
 import { EXERCISES, FRONT_SQUAT as F, TRACKING, VIEW, FEEDBACK, type CameraView, type ExerciseId } from '../config';
 import { ScoreWindow } from './scoreWindow';
+import { MovementReps } from './reps';
 import { curlFacing } from './curlVisual';
 import { frontFoot } from './frontFoot';
-import type { Assessment, Correction, Point, Pose, ScoreComponent } from './types';
+import type { Assessment, Correction, Point, Pose, RepRejection, ScoreComponent } from './types';
 
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const mid = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, visibility: Math.min(a.visibility, b.visibility) });
@@ -19,6 +20,7 @@ type CurlStart = {
 };
 
 export class ViewCoach {
+  readonly repCounter = new MovementReps();
   private state = 'FRAME_INVALID';
   private since: number | null = null;
   private viewSince: number | null = null;
@@ -37,6 +39,7 @@ export class ViewCoach {
   private curlBlock='No arms-down calibration';
   private curlReturnSince:number|null=null;
   private curlPeakBend = 0;
+  private curlPeakAngles:number[] = [];
   private curlPartial = {count:0,severityTotal:0,maxSeverity:0};
   private recordPartial(severity:number) {
     if(!this.curlCycleValid)return;
@@ -47,8 +50,10 @@ export class ViewCoach {
   private curlProgressAt = 0;
   private curlReverseSince: number | null = null;
   private curlPreviousBody: {hip:Point;shoulder:Point} | null = null;
+  private curlElbowHistory: {at:number;offsets:Point[]}[] = [];
   private holdStarted: number | null = null;
   private bottomReached = false;
+  private squatCalibration: { hipHeight:number; knee:number; leg:number; torso:number; feet:Point[] }[] = [];
   private squatBottomSince:number|null=null;
   private squatAscentSince:number|null=null;
   private squatReturnSince:number|null=null;
@@ -61,10 +66,19 @@ export class ViewCoach {
     // Keep the phase we saw, but leave tracking gaps out of transition timing
     this.phaseSince=null;this.since=null;this.curlReturnSince=null;this.curlReverseSince=null;
     this.squatAscentSince=null;this.squatReturnSince=null;this.squatBottomSince=null;
-    this.curlCalibration=[];this.curlPreviousBody=null;this.history=[];
+    this.curlCalibration=[];this.squatCalibration=[];this.curlPreviousBody=null;this.curlElbowHistory=[];this.history=[];
     this.displayScore.reset();this.errors.clear();this.activeIssues.clear();
   }
-  reset() { if(this.id==='curl'&&['CURLING_UP','TOP','LOWERING'].includes(this.state))this.curlFailure='Tracking/view confidence lost';this.curlReturnSince=null; if(this.id==='squat' && ['DESCENDING','HOLDING','ASCENDING'].includes(this.state))this.squatFailure='Tracking/view confidence lost';this.squatBottomSince=null;this.squatAscentSince=null;this.squatReturnSince=null; this.curlStart=null;this.curlCalibration=[];this.curlCycleValid=false;this.curlPreviousBody=null;this.curlReverseSince=null; this.holdStarted=null; this.bottomReached=false; this.state='FRAME_INVALID'; this.since=null; this.phaseSince=null; this.viewSince=null; this.at=null; this.baseline=null; this.history=[]; this.errors.clear(); this.activeIssues.clear();this.displayScore.reset(); this.source=null; this.holdHeight=null; }
+  reset(reason='Tracking/view confidence lost',category:RepRejection['category']='missing_tracking') {
+    this.repCounter.reject(category,reason);
+    if(this.id==='curl'&&['CURLING_UP','TOP','LOWERING'].includes(this.state))this.curlFailure=reason;
+    if(this.id==='squat'&&['DESCENDING','HOLDING','ASCENDING'].includes(this.state))this.squatFailure=reason;
+    this.curlReturnSince=null;this.squatBottomSince=null;this.squatAscentSince=null;this.squatReturnSince=null;
+    this.curlStart=null;this.curlCalibration=[];this.curlCycleValid=false;this.curlPreviousBody=null;this.curlElbowHistory=[];this.curlReverseSince=null;
+    this.holdStarted=null;this.bottomReached=false;this.state='FRAME_INVALID';this.since=null;this.phaseSince=null;
+    this.viewSince=null;this.at=null;this.baseline=null;this.squatCalibration=[];this.history=[];this.errors.clear();this.activeIssues.clear();
+    this.displayScore.reset();this.source=null;this.holdHeight=null;
+  }
 
   curlCycle(){return {state:this.state,calibrated:!!this.curlStart,validCycle:this.curlCycleValid,topConfirmed:this.curlCycleValid&&['TOP','LOWERING'].includes(this.state),blockReason:this.state==='FRAME_INVALID'?'Tracking/view confidence lost':this.curlBlock,lastFailure:this.curlFailure,returnConfirmationMs:this.curlReturnSince!==null&&this.at!==null?this.at-this.curlReturnSince:0};}
 
@@ -89,9 +103,10 @@ export class ViewCoach {
       components.push({id,value,limit,error,score:100*(1-clamp(error))});
       if((requiredReturn && error>0) || error>(this.activeIssues.has(id)?FEEDBACK.issueRelease:FEEDBACK.issueEnter)) candidates.push({id,label:'',joint,anchor,target:{...target,x:target.x/aspect},severity:error,kind});
     };
-    let reason='Waiting for exercise position', evaluating=false, coaching=false, ready=false;
+    let reason='Waiting for exercise position', evaluating=false, coaching=false, ready=false, viewConfirmed=false;
     const output=():Assessment=>{
-      coaching=coaching && this.state!=='FRAME_INVALID';
+      coaching=coaching && this.state!=='FRAME_INVALID' && viewConfirmed;
+      evaluating=evaluating && viewConfirmed;
       for(const id of this.errors.keys()) if(!coaching || !candidates.some(c=>c.id===id)) {this.errors.delete(id);this.activeIssues.delete(id);}
       for(const c of coaching?candidates:[]) if(!this.errors.has(c.id)) this.errors.set(c.id,now);
       const corrections=coaching ? candidates.filter(c=>now-this.errors.get(c.id)!>=FEEDBACK.correctionConfirmMs):[];
@@ -101,7 +116,7 @@ export class ViewCoach {
         // Group related checks so extra good measurements cannot hide an issue
         const groups=new Map<keyof typeof EXERCISES.curl.scoreWeights,number>();
         for(const c of components) {
-          const group=c.id==='torso'||c.id==='hip-shift'?'torso':c.id.startsWith('bottom-range')?'range':c.id==='arm-symmetry'?'symmetry':c.id==='stability'||c.id==='trunk-swing'?'stability':c.id==='control'?'control':'arm';
+          const group=c.id==='torso'||c.id==='hip-shift'?'torso':c.id.startsWith('bottom-range')||c.id.startsWith('curl-range')?'range':c.id==='arm-symmetry'?'symmetry':c.id==='stability'||c.id==='trunk-swing'||c.id.startsWith('elbow-motion')?'stability':c.id==='control'?'control':'arm';
           groups.set(group,Math.max(groups.get(group)??0,clamp(c.error)));
         }
         const weights=EXERCISES.curl.scoreWeights;
@@ -110,21 +125,24 @@ export class ViewCoach {
       }
       const score=this.displayScore.update(rawScore,now,FEEDBACK.scoreIntervalMs[this.id]);
       if(this.id==='plank' && this.state==='HOLDING' && evaluating) this.holdStarted??=now; else this.holdStarted=null;
-      return {...base,ready:true,score,scoreStatus:score!==null?'live':ready && this.state!=='FRAME_INVALID'?'ready':'uncertain',holdMs:this.holdStarted===null?0:now-this.holdStarted,reason,corrections,correction:corrections[0]??null,
+      const calibrated=this.id==='curl'?!!this.curlStart:this.id==='squat'?!!this.baseline:coaching;
+      return {...base,ready:true,score,scoreStatus:score!==null?'live':ready && calibrated && this.state!=='FRAME_INVALID'?'ready':'uncertain',holdMs:this.holdStarted===null?0:now-this.holdStarted,reason,corrections,correction:corrections[0]??null,
         phase:this.state==='HOLDING'||this.state==='TOP'?'Hold':this.state==='DESCENDING'?'Lower':this.state==='ASCENDING'?'Rise':this.state==='CURLING_UP'?'Curl':this.state==='LOWERING'?'Release':'Ready',
         debug:{...base.debug,curlCycle:this.id==='curl'?this.curlCycle():undefined,squatCycle:this.id==='squat'?{state:this.baseline&&this.state==='CALIBRATING_STANDING'?'CALIBRATED_STANDING':this.state,blockReason:this.squatBlock,lastFailure:this.squatFailure,calibrated:!!this.baseline,bottomConfirmed:this.bottomReached,ascentConfirmationMs:this.squatAscentSince===null?0:now-this.squatAscentSince}:undefined,exercise:this.id,view:this.view,state:this.state,viewValid,coachingEnabled:coaching,scoringEnabled:evaluating,scoreUpdatedAt:this.displayScore.updatedAt,curlPartial:this.id==='curl'?{...this.curlPartial}:undefined,angles,components:coaching?components:[],reason,validMovement:evaluating,rawScore,stableFrames:this.history.length}};
     };
     if(!Number.isFinite(torso)||torso<1e-5||!viewValid) {
-      this.reset(); reason='Selected camera view not confirmed'; return output();
+      this.reset('Selected camera view not confirmed',orientationVisible?'wrong_view':'missing_tracking'); reason='Selected camera view not confirmed'; return output();
     }
     this.viewSince??=now;
-    if(now-this.viewSince<VIEW.confirmMs) { reason='Confirming selected camera view'; return output(); }
+    viewConfirmed=now-this.viewSince>=VIEW.confirmMs;
+    // Let the front squat capture standing while the same visible view settles
+    if(!viewConfirmed && this.id!=='squat') { reason='Confirming selected camera view'; return output(); }
     const previous=this.history.at(-1);
     const relevant=this.id==='curl'?[11,13,15,23]:this.id==='plank'?[11,13,15,23,25,27]:[11,23,25,27];
     const required=this.view==='side'?relevant.map(i=>i+s):relevant.flatMap(i=>[i,i+1]);
     const worldOK=world && required.every(i=>world[i]&&world[i].visibility>=TRACKING.visibility&&[world[i].x,world[i].y,world[i].z].every(Number.isFinite));
     const source=worldOK?'world':'image';
-    if(this.source && this.source!==source){this.reset();reason='Geometry source changed; reacquire starting position';return output();}
+    if(this.source && this.source!==source){this.reset('Geometry source changed; reacquire starting position');reason='Geometry source changed; reacquire starting position';return output();}
     this.source=source;
     const g=worldOK?world!:p;
     const leftArm=angle(g[11],g[13],g[15]), rightArm=angle(g[12],g[14],g[16]);
@@ -145,7 +163,7 @@ export class ViewCoach {
       const C=EXERCISES.curl;
       const upright=p[shoulder].y<p[h].y && (p[h].y-p[shoulder].y)/torso>0.6;
       const armDown=p[elbow].y>p[shoulder].y;
-      if(!upright||!armDown) {this.reset();reason='Waiting for standing curl position';return output();}
+      if(!upright||!armDown) {this.reset('Movement left the supported standing curl position','unrecognized_movement');reason='Waiting for standing curl position';return output();}
       if(this.state==='FRAME_INVALID') this.state='READY';
       const drift=(i:number)=>Math.abs(p[i].x-p[i-2].x)/torso;
       coaching=true; ready=true;
@@ -165,7 +183,7 @@ export class ViewCoach {
         }
         add('control',Math.abs(speed),C.maxSpeed*0.65,C.maxSpeed, wrist,elbow,p[wrist],'instability');
       } else {
-        for(const e of [13,14]) {const baseline=this.curlStart?.arms[e-13].elbow.x??0,offset=baseline*torso/(this.curlStart?.torso??torso);add(`elbow-${e}`,Math.abs(p[e].x-p[e-2].x-offset)/torso,C.elbowDrift,0.35,e,e-2,{...p[e],x:p[e-2].x+offset});}
+        for(const e of [13,14])add(`elbow-${e}`,Math.abs(p[e].x-p[e-2].x)/torso,C.elbowDrift,0.35,e,e-2,{...p[e],x:p[e-2].x});
         for(const w of [15,16]) {
           const outward=Math.sign(p[w-4].x-sh.x);
           add(`hand-path-${w}`,(p[w].x-p[w-2].x)*outward/torso,C.handSideways,0.4,w,w-2,{...p[w],x:p[w-2].x});
@@ -192,14 +210,22 @@ export class ViewCoach {
         const abduction=Math.atan2(Math.abs(p[13+side].x-p[11+side].x),p[13+side].y-p[11+side].y)*180/Math.PI;
         return (p[13+side].y-p[11+side].y)/Math.max(upper,1e-5)>C.minUpperArmVertical && abduction<C.maxArmAbduction;
       });
-      if(!plausibleArms) {this.curlFailure='Arm motion does not follow a standing curl path';this.curlBlock=this.curlFailure;this.curlCycleValid=false;this.state='READY';this.curlStart=null;this.curlCalibration=[];this.since=null;this.phaseSince=null;reason='Arm motion does not follow a standing curl path';return output();}
+      const offsets=armSides.map(side=>({x:(p[13+side].x-p[11+side].x)/torso,y:(p[13+side].y-p[11+side].y)/torso,visibility:1}));
+      this.curlElbowHistory.push({at:now,offsets});
+      this.curlElbowHistory=this.curlElbowHistory.filter(f=>now-f.at<=C.elbowMotionWindowMs);
+      if(plausibleArms)for(const [i,side] of armSides.entries()) {
+        const xs=this.curlElbowHistory.map(f=>f.offsets[i].x),ys=this.curlElbowHistory.map(f=>f.offsets[i].y);
+        const travel=Math.hypot(Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys));
+        angles[`elbowMotion-${side}`]=travel;
+        add(`elbow-motion-${side}`,travel,C.elbowMotion,0.25,13+side,11+side,p[13+side],'instability');
+      }
+      if(!plausibleArms) {this.repCounter.reject('unrecognized_movement','Arm motion does not follow a standing curl path');this.curlFailure='Arm motion does not follow a standing curl path';this.curlBlock=this.curlFailure;this.curlCycleValid=false;this.state='READY';this.curlStart=null;this.curlCalibration=[];this.since=null;this.phaseSince=null;reason='Arm motion does not follow a standing curl path';return output();}
       if(!this.curlStart) {
         this.curlBlock='No stable arms-down calibration';
         const extended=arms.every(a=>a.angle>C.phaseStart);
-        const aligned=armSides.every(side=>drift(13+side)<(this.view==='front'?C.elbowDrift:C.upperArmDrift));
         const origin=this.curlCalibration[0];
         const settledBody=!origin || (dist(bodyHip,origin.hip)/torso<C.stability && Math.abs(tilt-origin.tilt)<C.calibrationAngleRange);
-        const stable=extended && aligned && settledBody && Math.abs(speed)<C.calibrationSpeed && range('joint')<C.calibrationAngleRange && motion<C.stability && (this.view==='front'||Math.abs(tilt)<=C.calibrationLeanMax);
+        const stable=extended && settledBody && Math.abs(speed)<C.calibrationSpeed && range('joint')<C.calibrationAngleRange && motion<C.stability && (this.view==='front'||Math.abs(tilt)<=C.calibrationLeanMax);
         if(stable){this.since??=now;this.curlCalibration.push({arms,torso,tilt,hip:{...bodyHip},midpoint,facing});}
         else {this.since=null;this.curlCalibration=[];}
         if(this.since!==null&&now-this.since>=C.readyMs) {
@@ -216,9 +242,13 @@ export class ViewCoach {
       const down=arms.map((arm,i)=>{
         const b=start.arms[i];
         const bend=Math.max(0,b.angle-arm.angle);
-        const wristDistance=Math.hypot(arm.wrist.x-b.wrist.x*scale,arm.wrist.y-b.wrist.y*scale)/Math.max(b.length*scale,1e-5);
+        // Compare the forearm return locally so elbow drift stays a form cue
+        const wristDistance=Math.max(Math.hypot(arm.wrist.x-arm.elbowFromHip.x-(b.wrist.x-b.elbowFromHip.x)*scale,arm.wrist.y-arm.elbowFromHip.y-(b.wrist.y-b.elbowFromHip.y)*scale),b.wrist.y*scale-arm.wrist.y)/Math.max(b.length*scale,1e-5);
+        const returning=this.state==='TOP'||this.state==='LOWERING';
+        const returnBend=returning?Math.min(C.returnAngleMax,Math.max(C.downAngleTolerance,this.curlPeakBend*C.returnRangeFraction)):C.downAngleTolerance;
         angles[`returnAngle-${armSides[i]}`]=bend;angles[`returnWrist-${armSides[i]}`]=wristDistance;
-        return {bend,wristDistance,accepted:bend<=C.downAngleTolerance && wristDistance<=C.downWristTolerance};
+        angles.returnAngleTolerance=returnBend;
+        return {bend,wristDistance,accepted:bend<=returnBend && wristDistance<=C.downWristTolerance};
       });
       angles.baselineTorso=start.tilt;angles.baselineElbow=start.arms.reduce((sum,a)=>sum+a.angle,0)/start.arms.length;
       const atDown=down.every(a=>a.accepted);
@@ -227,16 +257,23 @@ export class ViewCoach {
       if(this.state==='READY') {
         const bending=arms.every((a,i)=>start.arms[i].angle-a.angle>C.movementBend);
         const rising=arms.every((a,i)=>(start.arms[i].wrist.y*scale-a.wrist.y)/(start.arms[i].length*scale)>C.movementRise);
-        if(bending&&rising){this.phaseSince??=now;if(now-this.phaseSince>=C.phaseMs){this.state='CURLING_UP';this.started=now;this.phaseSince=null;this.curlCycleValid=true;this.curlFailure=null;this.curlReturnSince=null;this.curlPeakBend=0;}}
+        if(bending&&rising){this.phaseSince??=now;if(now-this.phaseSince>=C.phaseMs){this.state='CURLING_UP';this.repCounter.begin();this.started=now;this.phaseSince=null;this.curlCycleValid=true;this.curlFailure=null;this.curlReturnSince=null;this.curlPeakBend=0;this.curlPeakAngles=arms.map(a=>a.angle);}}
         else this.phaseSince=null;
       }
-      if(this.state==='CURLING_UP') {
+      if(['CURLING_UP','TOP'].includes(this.state)) {
         this.curlPeakBend=Math.max(this.curlPeakBend,...down.map(a=>a.bend));
-        if(arms.every((a,i)=>a.angle<=C.phaseEnd && down[i].bend>=C.topMinBend))this.phaseSince??=now;else this.phaseSince=null;
+        this.curlPeakAngles=arms.map((a,i)=>Math.min(this.curlPeakAngles[i]??a.angle,a.angle));
+      }
+      if(this.state==='CURLING_UP') {
+        if(arms.every((a,i)=>a.angle<=C.repTopAngle && down[i].bend>=C.repMinBend))this.phaseSince??=now;else this.phaseSince=null;
         if(this.phaseSince!==null&&now-this.phaseSince>=C.topConfirmMs){this.state='TOP';this.phaseSince=null;}
-        if(atDown){this.curlFailure='Top not reached';this.recordPartial(1-this.curlPeakBend/Math.max(1,angles.baselineElbow-C.phaseEnd));this.state='LOWERING';this.curlCycleValid=false;this.phaseSince=null;this.curlLowestAngle=joint;this.curlProgressAt=now;}
+        if(atDown){this.repCounter.reject('insufficient_range','Top not reached');this.curlFailure='Top not reached';this.recordPartial(1-this.curlPeakBend/Math.max(1,angles.baselineElbow-C.phaseEnd));this.state='LOWERING';this.curlCycleValid=false;this.phaseSince=null;this.curlLowestAngle=joint;this.curlProgressAt=now;}
       }
       if(this.state==='TOP') {
+        if(Math.abs(speed)<=C.directionSpeed)for(const [i,side] of armSides.entries()) {
+          const deficit=Math.max(0,this.curlPeakAngles[i]-C.phaseEnd,C.topMinBend-(start.arms[i].angle-this.curlPeakAngles[i]));
+          add(`curl-range-${side}`,deficit,0,40,15+side,13+side,{...p[15+side],x:p[11+side].x,y:p[11+side].y+torso*0.15},'rotation');
+        }
         if(speed>C.directionSpeed)this.phaseSince??=now;else this.phaseSince=null;
         if(this.phaseSince!==null&&now-this.phaseSince>=C.phaseMs){this.state='LOWERING';this.phaseSince=null;this.curlLowestAngle=joint;this.curlProgressAt=now;}
       }
@@ -245,7 +282,7 @@ export class ViewCoach {
         this.curlLowestAngle=Math.max(this.curlLowestAngle,joint);
         const reversed=this.curlLowestAngle-joint>C.movementBend;
         if(reversed)this.curlReverseSince??=now;else this.curlReverseSince=null;
-        if(this.curlReverseSince!==null&&now-this.curlReverseSince>=C.phaseMs){this.curlFailure='Incomplete lowering before the next curl';this.recordPartial(Math.max(...down.map(a=>Math.max(a.bend/C.bottomPenaltyAngle,a.wristDistance))));this.curlCycleValid=false;}
+        if(this.curlReverseSince!==null&&now-this.curlReverseSince>=C.phaseMs){this.repCounter.reject('insufficient_range','Incomplete lowering before the next curl');this.curlFailure='Incomplete lowering before the next curl';this.recordPartial(Math.max(...down.map(a=>Math.max(a.bend/C.bottomPenaltyAngle,a.wristDistance))));this.curlCycleValid=false;}
         const incomplete=now-this.curlProgressAt>=C.loweringStallMs || !this.curlCycleValid;
         angles.loweringStallMs=now-this.curlProgressAt;angles.bottomAccepted=atDown?1:0;
         for(const [i,a] of down.entries()) if(!a.accepted && incomplete) {
@@ -259,13 +296,13 @@ export class ViewCoach {
         // There is no need to repeat the initial standing-still calibration
         if(atDown)this.curlReturnSince??=now;else this.curlReturnSince=null;
         if(this.curlReturnSince!==null&&now-this.curlReturnSince>=C.downStableMs) {
-          if(this.curlCycleValid)this.curlFailure=null;
+          if(this.curlCycleValid){this.repCounter.complete();this.curlFailure=null;}
           this.state='READY';this.phaseSince=null;this.curlReturnSince=null;this.curlReverseSince=null;this.curlCycleValid=false;this.curlBlock='Waiting for upward elbow flexion';
           reason='Returned to calibrated bottom; ready for next curl';return output();
         }
       }
       if(['CURLING_UP','TOP','LOWERING'].includes(this.state) && (now-this.started>C.timeoutMs || Math.abs(speed)>C.maxSpeed)) {
-        this.curlFailure=now-this.started>C.timeoutMs?'Curl sequence timed out':'Movement too abrupt to recognize';this.recordPartial(Math.max(...down.map(a=>Math.max(a.bend/C.bottomPenaltyAngle,a.wristDistance))));this.curlCycleValid=false;this.state='LOWERING';this.curlProgressAt=0;
+        this.curlFailure=now-this.started>C.timeoutMs?'Curl sequence timed out':'Movement too abrupt to recognize';this.repCounter.reject('unrecognized_movement',this.curlFailure);this.recordPartial(Math.max(...down.map(a=>Math.max(a.bend/C.bottomPenaltyAngle,a.wristDistance))));this.curlCycleValid=false;this.state='LOWERING';this.curlProgressAt=0;
       }
       if(this.view==='side' && ['CURLING_UP','TOP','LOWERING'].includes(this.state) && midpoint && start.midpoint) {
         const direction=start.facing;
@@ -342,15 +379,23 @@ export class ViewCoach {
       const highFoot=p[27].y<p[28].y?27:28;
       add('foot-symmetry',footDifference,F.symmetry,0.25,highFoot,highFoot-2,{...p[highFoot],y:Math.max(p[27].y,p[28].y)});
       if(!this.baseline) {
-        if(joint>F.uprightKnee&&range('height')<F.baselineRange)this.since??=now;else this.since=null;
-        if(this.since!==null&&now-this.since>=F.baselineMs)this.baseline={height,knee:joint,torso,leg,elbows:[],feet:[{...p[27]},{...p[28]}]};
+        if(joint>F.uprightKnee&&range('height')<F.baselineRange&&range('joint')<F.baselineKneeRange) {
+          this.since??=now;this.squatCalibration.push({hipHeight:foot.y-hip.y,knee:joint,torso,leg,feet:[{...p[27]},{...p[28]}]});
+        } else {this.since=null;this.squatCalibration=[];}
+        if(viewConfirmed&&this.since!==null&&now-this.since>=F.baselineMs) {
+          const frames=this.squatCalibration,mean=(fn:(f:typeof frames[number])=>number)=>frames.reduce((sum,f)=>sum+fn(f),0)/frames.length;
+          const standingLeg=mean(f=>f.leg);
+          this.baseline={height:mean(f=>f.hipHeight)/standingLeg,knee:mean(f=>f.knee),torso:mean(f=>f.torso),leg:standingLeg,elbows:[],
+            feet:[0,1].map(s=>({x:mean(f=>f.feet[s].x),y:mean(f=>f.feet[s].y),visibility:1}))};
+          this.squatCalibration=[];this.since=null;
+        }
         this.squatBlock=this.baseline?'Descent too small':'No standing calibration';reason='Waiting for upright front-view calibration';return output();
       }
       const drop=this.baseline.height-height,bend=this.baseline.knee-joint;
       angles.hipDrop=drop;angles.kneeBend=bend;
-      if([27,28].some((i,s)=>dist(p[i],this.baseline!.feet[s])/leg>F.maxFootTravel)){this.reset();reason='Feet moved; recalibrate standing';return output();}
+      if([27,28].some((i,s)=>dist(p[i],this.baseline!.feet[s])/leg>F.maxFootTravel)){this.reset('Feet moved outside the supported squat setup','unrecognized_movement');reason='Feet moved; recalibrate standing';return output();}
       if(this.state==='CALIBRATING_STANDING') {
-        if(drop>F.minDrop&&bend>F.kneeBend){this.phaseSince??=now;if(now-this.phaseSince>=EXERCISES.squat.directionHoldMs){this.state='DESCENDING';this.squatFailure=null;this.bottomReached=false;this.squatBottomSince=null;this.squatAscentSince=null;this.started=now;this.since=null;}}
+        if(drop>F.minDrop&&bend>F.kneeBend){this.phaseSince??=now;if(now-this.phaseSince>=EXERCISES.squat.directionHoldMs){this.state='DESCENDING';this.repCounter.begin();this.squatFailure=null;this.bottomReached=false;this.squatBottomSince=null;this.squatAscentSince=null;this.started=now;this.since=null;}}
         else this.phaseSince=null;
       }
       if(this.state==='DESCENDING') {
@@ -364,18 +409,21 @@ export class ViewCoach {
       if(['DESCENDING','HOLDING'].includes(this.state) && this.squatAscentSince!==null && now-this.squatAscentSince>=F.ascentConfirmMs) {
         this.state='ASCENDING';this.started=now;
       }
-      if(this.state==='HOLDING' && !rising && this.holdHeight!==null && Math.abs(height-this.holdHeight)>EXERCISES.squat.holdExitHipRange){this.reset();reason='Moved out of squat hold';return output();}
+      if(this.state==='HOLDING' && !rising && this.holdHeight!==null && this.holdHeight-height>EXERCISES.squat.holdExitHipRange) {
+        // Going deeper after a pause is still part of the same squat
+        this.state='DESCENDING';this.since=null;this.holdHeight=null;this.started=now;
+      }
       if(this.state==='ASCENDING') {
         if(drop<=F.returnDrop && bend<=F.returnKneeTolerance)this.squatReturnSince??=now;else this.squatReturnSince=null;
         if(this.squatReturnSince!==null&&now-this.squatReturnSince>=F.returnConfirmMs){
-          if(!this.bottomReached)this.squatFailure='No confirmed bottom/reversal';
-          else this.squatFailure=null;
+          if(!this.bottomReached){this.squatFailure='No confirmed bottom/reversal';this.repCounter.reject('insufficient_range',this.squatFailure);}
+          else {this.squatFailure=null;this.repCounter.complete();}
           this.displayScore.reset();this.state='CALIBRATING_STANDING';this.since=null;this.phaseSince=null;this.squatReturnSince=null;this.squatAscentSince=null;this.squatBottomSince=null;this.bottomReached=false;
           ready=true;this.squatBlock=this.squatFailure??'Descent too small';reason=this.squatFailure??'Completed squat; calibrated for next descent';return output();
         }
       }
       this.squatBlock=this.state==='ASCENDING'?'Did not return to standing':this.state==='DESCENDING'?(this.bottomReached?'Ascent not detected':'No confirmed bottom/reversal'):this.state==='HOLDING'?'Ascent not detected':'Descent too small';
-      if(['DESCENDING','ASCENDING'].includes(this.state)&&now-this.started>F.timeoutMs){const failed=this.squatBlock;this.reset();this.squatFailure=failed;reason=failed;return output();}
+      if(['DESCENDING','ASCENDING'].includes(this.state)&&now-this.started>F.timeoutMs){const failed=this.squatBlock;this.reset(failed,'insufficient_range');this.squatFailure=failed;reason=failed;return output();}
       // Get foot placement right first
       // Save knee tracking arrows for the squat movement
       if(stanceAccepted && ['DESCENDING','HOLDING','ASCENDING'].includes(this.state)) {

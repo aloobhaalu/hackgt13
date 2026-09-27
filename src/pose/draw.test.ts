@@ -4,15 +4,24 @@ import { drawCorrection, drawPose } from './draw';
 import { demoPose } from './demo';
 import { emptyAssessment } from './engine';
 import type { Correction } from './types';
+import { CORRECTION_VISUAL as V } from '../config';
 
 function recorder() {
   const calls: { name: string; args: number[] }[] = [], colors: string[] = [];
   const styles: {name:string;value:number}[]=[];
+  const paints:{kind:string;color:string;alpha:number;width:number}[]=[];
+  let state={strokeStyle:'#000',fillStyle:'#000',globalAlpha:1,lineWidth:1};
+  const stack:typeof state[]=[];
   const context = new Proxy({}, {
-    get: (_, name: string) => (...args: number[]) => calls.push({ name, args }),
-    set: (_, name, value) => { if (name === 'strokeStyle') colors.push(value); if(name==='globalAlpha'||name==='lineWidth')styles.push({name:String(name),value}); return true; },
+    get: (_, name: string) => (...args: number[]) => {
+      calls.push({name,args});
+      if(name==='save')stack.push({...state});
+      if(name==='restore')state=stack.pop()!;
+      if(name==='stroke'||name==='fill')paints.push({kind:name,color:name==='stroke'?state.strokeStyle:state.fillStyle,alpha:state.globalAlpha,width:state.lineWidth});
+    },
+    set: (_, name, value) => { if(name in state)Object.assign(state,{[name]:value});if (name === 'strokeStyle') colors.push(value); if(name==='globalAlpha'||name==='lineWidth')styles.push({name:String(name),value}); return true; },
   }) as CanvasRenderingContext2D;
-  return { calls, colors, context, styles };
+  return { calls, colors, context, styles, paints };
 }
 for (const kind of ['translation', 'rotation'] as const) {
   test(`${kind} cue draws a connected direction arrow and a visible target at the desired joint`, () => {
@@ -66,4 +75,27 @@ test('curl down-range ghost keeps its calibrated forearm length while the wrist 
   assert.ok(calls.some(c=>c.name==='moveTo'&&c.args[0]===320&&c.args[1]===330));
   assert.ok(calls.some(c=>c.name==='lineTo'&&c.args[0]===320&&c.args[1]===450));
   assert.ok(calls.some(c=>c.name==='moveTo'&&c.args[0]===pose[15].x*800&&c.args[1]===pose[15].y*600));
+});
+
+test('even mild targets stay strong at the pulse trough and have a dark outline',()=>{
+  const pose=demoPose('curl',1,false),cue:Correction={id:'elbow',label:'',joint:13,anchor:11,kind:'translation',target:{...pose[13],x:pose[13].x-.08},severity:.05};
+  for(const time of [0,V.pulsePeriodMs/4,V.pulsePeriodMs*3/4])for(const subtle of [false,true]) {
+    const r=recorder();drawCorrection(r.context,pose,cue,800,600,time,subtle);
+    const strokes=r.paints.filter(p=>p.kind==='stroke'&&p.color===V.targetColor&&p.width>=V.arrowWidth);
+    assert.ok(strokes.length>=2);assert.ok(strokes.every(p=>p.alpha>=.75));
+    assert.ok(strokes.some(p=>p.width>=V.segmentWidth));
+    assert.ok(r.paints.some(p=>p.color===V.outlineColor&&p.width>=V.segmentWidth+2*V.outlineWidth&&p.alpha>=.8));
+    assert.ok(r.paints.filter(p=>p.kind==='fill'&&p.color===V.targetColor).every(p=>p.alpha>=.75));
+    assert.ok(r.calls.some(c=>c.name==='arc'&&c.args[2]===V.targetDotRadius));
+  }
+});
+
+test('target and outline offer contrasting edges on both light and dark backgrounds',()=>{
+  const luminance=(hex:string)=>{
+    const rgb=hex.slice(1).match(/../g)!.map(v=>parseInt(v,16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+    return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
+  };
+  const contrast=(a:number,b:number)=>(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+  for(const background of ['#f5f5f5','#161c19'])assert.ok(Math.max(contrast(luminance(background),luminance(V.targetColor)),contrast(luminance(background),luminance(V.outlineColor)))>4.5);
+  assert.ok(contrast(luminance(V.targetColor),luminance(V.outlineColor))>4.5);
 });

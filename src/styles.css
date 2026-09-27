@@ -34,6 +34,13 @@
 .alignment-indicator { position: absolute; top: 18px; left: 18px; z-index: 3; display: flex; flex-direction: column; gap: 5px; padding: 10px 13px; background: #101712cc; border: 1px solid #59694a44; border-radius: 7px; }
 .alignment-indicator span { font-size: 12px; color: #bac7b0; }
 .alignment-indicator strong { font-size: 21px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.live-feedback-slot { min-height: 72px; padding-bottom: 12px; }
+.live-feedback { padding: 14px 18px; border-left: 3px solid #34d399; background: #19251e; border-radius: 6px; color: #e3f2dd; font-size: 19px; font-weight: 500; line-height: 1.5; }
+.live-feedback p { margin: 0; color: inherit; }
+.live-feedback ul { margin: 0; padding: 0 0 0 1.1em; list-style: disc; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px 32px; }
+.live-feedback ul.has-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, auto); grid-auto-flow: column; }
+.live-feedback li { padding-left: 3px; overflow-wrap: anywhere; }
+.live-feedback li::marker { color: var(--mint); }
 .camera-first .stage-bottom { justify-content: space-between; }
 .correction-confirmed { display: grid; place-items: center; border: 1px solid #bcf6ac66; width: 36px; height: 36px; border-radius: 50%; color: var(--mint); background: #19271acc; }
 .quick-setup { position: absolute; z-index: 4; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 22px; padding: 15px 24px; background: #101a15e8; border: 1px solid #758b5e77; border-radius: 12px; color: #c3dcba; pointer-events: none; animation: setup-fade 2.6s both; }
@@ -90,6 +97,8 @@
   .reframe-hint { font-size: 12px; width: calc(100% - 30px); bottom: 75px; }
   .alignment-indicator { top: 12px; left: 12px; padding: 9px 11px; }
   .alignment-indicator strong { font-size: 18px; }
+  .live-feedback { padding: 12px 14px; font-size: 17px; }
+  .live-feedback ul.has-columns { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
   .camera-first .session-controls { flex-direction: row; }
   .camera-first .session-controls > div { width: 100%; }
   .debug-panel { padding: 15px; }
