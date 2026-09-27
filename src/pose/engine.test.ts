@@ -9,6 +9,7 @@ import type { Pose } from './types';
 import { FEEDBACK } from '../config';
 import { validationRecord } from './validation';
 import { repFrame, repMotion } from './repFixtures';
+import { SessionReps } from './reps';
 
 function curl(ms:number, view:CameraView, bad=false):Pose {
   ms=Math.max(0,ms-650);
@@ -308,7 +309,8 @@ for(const view of ['front','side'] as CameraView[])test(`curl ${view}: Ready, li
       const t=mode==='partial'&&ms>2600?Math.max(0,2600-(ms-2600)):ms;
       const p=curl(t,view);if(mode==='lost'&&ms>3000&&ms<3200)for(const i of [15,16])p[i].visibility=0;
       last=e.update(p,ms).assessment;
-      if(ms>1200&&ms<1700){assert.equal(last.score,null);assert.equal(last.scoreStatus,'ready');ready=true;}
+      if(ms>1200&&ms<1700){assert.equal(last.score,null);assert.notEqual(last.scoreStatus,'ready');}
+      if(ms>2050&&ms<2400){assert.equal(last.scoreStatus,'ready');ready=true;}
       if(last.score!==null)phases.add(last.debug.state!);
       if(mode==='lost'&&ms>3000&&ms<3200){assert.equal(last.score,null);assert.notEqual(last.scoreStatus,'ready');}
     }
@@ -453,20 +455,66 @@ test(`${view} ${exercise}: brief recovery cannot bridge a long gap, body jump, o
       if(missing){missed=true;assert.equal(last.score,null);assert.equal(last.corrections?.length??0,0);}
     }
     assert.ok(missed);assert.ok(reset,mode);assert.equal(last.score,null);
+    assert.equal(last.reps,0,mode);
   }
 });
 
-test('exercise assessments and validation records contain no repetition counters',()=>{
+test('only squat and curl count complete movements and expose totals to local validation',()=>{
   for(const exercise of ['squat','curl','plank'] as const)for(const view of ['front','side'] as const) {
-    const e=new CoachEngine(exercise,view);
+    const e=new CoachEngine(exercise,view);let previous=0;
     for(let t=0;t<10500;t+=65) {
       const f=exercise==='plank'?(view==='front'?frontPlank():{p:demoPose('plank',0,false),world:undefined}):undefined;
       const motion=exercise==='plank'?undefined:repFrame(exercise,view,repMotion(t));
       const a=e.update(f?.p??motion!.pose,t,exercise==='plank'?1:16/9,false,f?.world??motion?.world).assessment;
-      for(const data of [a,a.debug,a.debug.squat??{},validationRecord(a,exercise,view,'camera',t)]) {
-        for(const key of ['reps','completedCycles','qualityReps','lastRepScore'])assert.ok(!(key in data));
+      for(const data of [a,validationRecord(a,exercise,view,'camera',t)]) {
+        for(const key of ['qualityReps','lastRepScore'])assert.ok(!(key in data));
+        assert.equal('reps' in data,exercise!=='plank');
       }
+      if(exercise!=='plank'){assert.ok(a.reps===previous||a.reps===previous+1);previous=a.reps!;}
     }
-    assert.ok(!('reps' in e.interrupt()));
+    if(exercise==='plank')assert.ok(!('reps' in e.interrupt()));
+    else {assert.equal(previous,2);assert.equal(e.interrupt().reps,2);}
+  }
+});
+
+test('front squat counts a wide-stance movement while showing low alignment and inward foot targets',()=>{
+  const e=new CoachEngine('squat','front');let last=e.interrupt(),low=false,guided=false;
+  for(let t=0;t<10500;t+=65) {
+    const {p,world}=frontSquat(t);
+    for(const side of [0,1])for(const points of [p,world]) {
+      const shift=side===0?-.13:.13;
+      for(const i of [27,29,31])points[i+side].x+=shift;
+      points[25+side].x+=shift/2;
+    }
+    last=e.update(p,t,1,false,world).assessment;
+    low ||= last.score!==null&&last.score<85;
+    guided ||= !!last.corrections?.some(c=>c.id.startsWith('stance-wide-'));
+  }
+  assert.ok(low);assert.ok(guided);assert.equal(last.reps,1);assert.equal(last.debug.repRejection,null);
+});
+
+test('session totals survive evaluator replacement without duplicating completed movements',()=>{
+  const session=new SessionReps();
+  assert.equal(session.observe(0),0);assert.equal(session.observe(2),2);assert.equal(session.observe(2),2);
+  session.newEvaluator();assert.equal(session.observe(undefined),2);assert.equal(session.observe(0),2);
+  assert.equal(session.observe(1),3);assert.equal(session.observe(1),3);
+});
+
+for(const exercise of ['squat','curl'] as const)for(const view of ['front','side'] as const)
+test(`${view} ${exercise}: rep failures identify missing tracking, wrong view and unrelated movement`,()=>{
+  for(const category of ['missing_tracking','wrong_view','unrecognized_movement'] as const) {
+    const e=new CoachEngine(exercise,view);let last=e.interrupt(),rejected=false;
+    for(let t=0;t<9000;t+=65) {
+      const bad=t>=5500&&t<6200;
+      const f=repFrame(exercise,bad&&category==='wrong_view'?(view==='side'?'front':'side'):view,repMotion(t,1));
+      if(bad&&category==='missing_tracking')for(const i of exercise==='curl'?[15,16]:[27,28])f.pose[i].visibility=0;
+      if(bad&&category==='unrecognized_movement') {
+        if(exercise==='squat')for(const i of [27,28,29,30,31,32])f.pose[i].x+=.22;
+        else for(const side of [0,1]){f.pose[13+side].x=f.pose[11+side].x+(side===0?-.2:.2);f.pose[13+side].y=f.pose[11+side].y+.01;}
+      }
+      last=e.update(f.pose,t,16/9,false,f.world).assessment;
+      if(last.debug.repRejection){assert.equal(last.debug.repRejection.category,category);assert.ok(last.debug.repRejection.reason.length>0);rejected=true;}
+    }
+    assert.ok(rejected,category);assert.equal(last.reps,0,category);
   }
 });

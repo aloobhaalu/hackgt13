@@ -5,6 +5,8 @@ import RecapPayload from './components/RecapPayload';
 import { type Recap } from './recap/content';
 import type { SessionSummary } from './recap/summary';
 import HoldTimer from './components/HoldTimer';
+import RepCounter from './components/RepCounter';
+import LiveFeedback from './components/LiveFeedback';
 import { alignmentText } from './pose/scoreDisplay';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, Camera, LockKeyhole, Pause, Play, RotateCcw, Square, VideoOff } from 'lucide-react';
@@ -88,13 +90,16 @@ function Session({ exercise, view, source, debug, finished, end, back, retry, de
   const cameraStatus = finished ? 'Session ended' : paused ? 'Paused' : status === 'error' ? (hasVideo ? 'Tracking unavailable' : 'Camera unavailable') : status === 'loading' ? (hasVideo ? 'Loading tracking' : 'Opening camera') : a.ready ? 'Tracking' : 'Tracking uncertain';
   return <section className="session-page camera-first">
     <div className="live-heading"><button className="back-button" onClick={back}><ArrowLeft size={16}/> Back</button><h1>{EXERCISES[exercise].name}</h1><span className="live-camera-status"><span className={a.ready && !paused ? 'connected' : ''}/>{demo ? 'Simulated demo' : cameraStatus}</span></div>
+    <div className="live-feedback-slot">
+      {!finished && status==='running' && !paused && <LiveFeedback assessment={a} exercise={exercise} view={view}/>}
+    </div>
     <div className={`camera-stage ${demo ? 'demo-stage' : 'mirrored-camera'} ${paused ? 'is-paused' : ''}`}>
       <video ref={videoRef} muted playsInline className={demo ? 'hidden-video' : ''}/>
       {demo && <div className="stage-grid"/>}
       <canvas ref={canvasRef} className="pose-canvas" aria-label="White pose skeleton. Orange joint points toward a pulsing mint target when adjustment is needed."/>
       {!finished && status === 'running' && !paused && targetState==='locked' && <>
         <div className="alignment-indicator" aria-label="Form Alignment"><strong>{alignmentText(a)}</strong></div>
-        {exercise==='plank'&&<div className="stage-bottom"><HoldTimer durationMs={a.holdMs??0}/></div>}
+        <div className="stage-bottom">{exercise==='plank'?<HoldTimer durationMs={a.holdMs??0}/>:<RepCounter count={a.reps??0}/>}</div>
       </>}
       {!finished && hasVideo && !demo && !paused && status!=='error' && <TargetGuide visible={targetState==='selecting'}/>}
       {!finished && status === 'loading' && !hasVideo && <div className="stage-overlay"><div className="loader"><Camera size={30}/></div><p role="status">{message}</p></div>}

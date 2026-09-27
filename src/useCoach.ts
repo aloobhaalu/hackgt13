@@ -6,11 +6,13 @@ import type { SessionSource } from './camera';
 import { CoachEngine, emptyAssessment } from './pose/engine';
 import { TargetTracker, type TargetState } from './pose/targetTracker';
 import { drawPose } from './pose/draw';
+import { SessionReps } from './pose/reps';
 import { demoFrame } from './pose/demoFrame';
 import type { Pose } from './pose/types';
 
 export function useCoach(exercise: ExerciseId, source: SessionSource, view: CameraView = 'side') {
   const sessionMetrics=useRef<SessionMetrics|null>(null);
+  const sessionReps=useRef(new SessionReps());
   if(!sessionMetrics.current)sessionMetrics.current=new SessionMetrics(exercise,view,source.kind);
   const stopRef=useRef<()=>void>(()=>{});
   const stop=useCallback(()=>stopRef.current(),[]);
@@ -40,11 +42,13 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
     let modelTimer: ReturnType<typeof setTimeout> | undefined;
     let pose: Pose = [], result = emptyAssessment();
     let engine = new CoachEngine(exercise, view);
+    sessionReps.current.newEvaluator();
+    const showAssessment=() => setAssessment(exercise==='plank'?result:{...result,reps:sessionReps.current.observe(result.reps)});
     const release = source.kind === 'camera' ? source.camera.retain() : undefined;
     const fail = (text: string) => {
       if (disposed) return;
       cancelAnimationFrame(raf);
-      sessionMetrics.current!.interrupt();result = engine.interrupt(text); setAssessment(result);
+      sessionMetrics.current!.interrupt();result = engine.interrupt(text); showAssessment();
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       setMessage(text); setStatus('error'); target.reset();setTargetState('selecting');
       model?.close(); model = undefined;
@@ -57,7 +61,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
       if (!canvas) return;
       if (pausedRef.current) {
         if (!wasPaused) {
-          sessionMetrics.current!.interrupt();result = engine.interrupt(); setAssessment(result); wasPaused = true;pose=[];target.reset();setTargetState('selecting');
+          sessionMetrics.current!.interrupt();result = engine.interrupt(); showAssessment(); wasPaused = true;pose=[];target.reset();setTargetState('selecting');
           canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
         }
         raf = requestAnimationFrame(tick); return;
@@ -79,7 +83,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
             const selected = target.update(detected.landmarks, now, w/h);
             setTargetState(selected.state);
             // Start fresh when a person locks in and keep only the session aggregates
-            if(selected.acquired){engine=new CoachEngine(exercise,view);sessionMetrics.current!.newEvaluator();}
+            if(selected.acquired){engine=new CoachEngine(exercise,view);sessionMetrics.current!.newEvaluator();sessionReps.current.newEvaluator();}
             const world = selected.index === undefined ? undefined : detected.worldLandmarks[selected.index];
             if(selected.pose) {
               const output = engine.update(selected.pose, now, w / h, false, world);
@@ -94,7 +98,7 @@ export function useCoach(exercise: ExerciseId, source: SessionSource, view: Came
             sessionMetrics.current!.interrupt();pose = []; result = engine.interrupt('Waiting for fresh camera frames');setTargetState(target.update([],now,w/h).state);
           }
           lastInference = now;
-          setAssessment(result);
+          showAssessment();
         }
         const ctx = canvas.getContext('2d');
         if (ctx) { ctx.clearRect(0, 0, w, h); drawPose(ctx, pose, w, h, result, now, demo); }

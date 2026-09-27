@@ -13,11 +13,18 @@ export const FEEDBACK = {
   scoreChangeMin: 2, scoreWindowMs: 350,
   scoreIntervalMs: { squat: 200, curl: 200, plank: 200 },
 };
+// Keep active targets readable over clothing without changing the rest of the UI
+export const CORRECTION_VISUAL = {
+  targetColor: '#34d399', targetOpacity: 0.94, segmentWidth: 4.5,
+  arrowWidth: 3.5, arrowheadSize: 14, targetDotRadius: 8,
+  outlineColor: '#08271f', outlineOpacity: 0.85, outlineWidth: 2,
+  pulseStrength: 0.08, pulsePeriodMs: 1400,
+};
 export const FRONT_SQUAT = {
-  baselineMs: 1500, baselineRange: 0.025, uprightKnee: 155, minDrop: 0.08,
+  baselineMs: 500, baselineRange: 0.025, baselineKneeRange: 8, uprightKnee: 155, minDrop: 0.08,
   kneeBend: 12, holdMs: 400, holdRange: 0.025, returnDrop: 0.04,
   stanceShoulderTarget: 1, stanceTolerance: 0.06, stanceRelease: 0.03, stanceVisibility: 0.65,
-  bottomDrop: 0.14, bottomKneeBend: 25, bottomConfirmMs: 100, ascentConfirmMs: 130, returnKneeTolerance: 15, returnConfirmMs: 130,
+  bottomDrop: 0.10, bottomKneeBend: 25, bottomConfirmMs: 100, ascentConfirmMs: 130, returnKneeTolerance: 15, returnConfirmMs: 130,
   toeVisibility: 0.75, toeOutMin: 10, toeOutMax: 35, toeOutTarget: 20, toePenaltyRange: 25,
   toeLengthMin: 0.07, toeLengthMax: 0.35, toeForwardMin: 0.025,
   kneeTrack: 0.28, kneeDirectionOffsetMax: 0.15, symmetry: 0.12, balance: 0.25,
@@ -37,6 +44,8 @@ export const EXERCISES = {
     depthKneeWeight: 0.5, depthDropWeight: 0.5,
     holdConfirmMs: 400, holdEvaluationMs: 600, holdSampleWindow: 5,
     holdMinKneeBend: 35, holdMinHipDrop: 0.14,
+    // A recognizable reversal can be shallower than the held-depth target
+    repMinKneeBend: 25, repMinHipDrop: 0.10,
     holdExitHipSpeed: 0.16, holdExitKneeSpeed: 22,
     holdExitHipRange: 0.06, holdExitKneeRange: 12,
     holdStableHipRange: 0.008, holdStableKneeRange: 2,
@@ -47,7 +56,7 @@ export const EXERCISES = {
     // Use standing leg length to compare squat distances and speeds
     startKneeMin: 150, startHipMin: 150, startTorsoMax: 25,
     setupHipMin: 95, setupTorsoMax: 75,
-    baselineHoldMs: 1500, baselineHipRange: 0.035,
+    baselineHoldMs: 500, baselineHipRange: 0.035, baselineKneeRange: 8,
     baselineHipSpeed: 0.08, baselineKneeSpeed: 14,
     sideShoulderRatioMax: 0.58, sideHipRatioMax: 0.5, // Allow a slightly angled profile
     featureWindow: 3, trackingGraceMs: 180,
@@ -71,13 +80,17 @@ export const EXERCISES = {
   curl: {
     name: 'Standing Dumbbell Bicep Curl', short: 'Dumbbell curl', angle: 'Front view recommended', recommendedView: 'front',
     phaseStart: 150, phaseEnd: 85, topMinBend: 75, topConfirmMs: 100,
+    repMinBend: 60, repTopAngle: 115,
     maxLean: 12, elbowDrift: 0.38, asymmetry: 28,
     readyMs: 1100, movementBend: 18, movementRise: 0.06, phaseMs: 180, timeoutMs: 10000,
     maxSpeed: 220, upperArmDrift: 0.2, stability: 0.035,
     handSideways: 0.32, backwardForearm: 0.15,
     scoreWeights: { arm: 0.25, torso: 0.35, stability: 0.15, control: 0.1, symmetry: 0.15, range: 0.3 },
     calibrationLeanMax: 18, calibrationAngleRange: 8, calibrationSpeed: 22,
-    downAngleTolerance: 12, downWristTolerance: 0.16, downStableMs: 130,
+    downAngleTolerance: 18, downWristTolerance: 0.16, downStableMs: 100,
+    // Allow a near-down return without treating a half-lowered curl as complete
+    returnRangeFraction: 0.25, returnAngleMax: 30,
+    elbowMotion: 0.12, elbowMotionWindowMs: 600,
     loweringStallMs: 450, directionSpeed: 5, bottomPenaltyAngle: 55,
     maxArmAbduction: 55, minUpperArmVertical: 0.5,
     leanPenaltyRange: 25, hipShift: 0.12, hipShiftPenaltyRange: 0.3,

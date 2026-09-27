@@ -10,6 +10,8 @@ import { HeelLiftEvaluator } from './heelLift';
 import { demoPose } from './demo';
 import { squatReference } from './squatVisual';
 import type { Pose } from './types';
+import { repFrame } from './repFixtures';
+import { coachingText } from './coachingText';
 
 // Independent articulated fixture: fixed thigh/shin lengths and planted feet
 function squatPose(flex: number, tilt = 2 + flex * 20): Pose {
@@ -31,6 +33,138 @@ function worldPose(image: Pose): Pose {
   return image.map((p, i) => ({ ...p, x: (p.x - center.x) * 2, y: (p.y - center.y) * 2, z: i % 2 === 0 ? 0.12 : 0 }));
 }
 
+for(const view of ['side','front'] as const) {
+  test(`squat ${view}: a brief visible standing start can lead straight into a counted squat`,()=>{
+    const e=new CoachEngine('squat',view);let last=e.interrupt(),moving=false;
+    for(let t=0;t<6300;t+=65) {
+      const flex=t<1200?0:t<2900?ease((t-1200)/1700):t<4500?1-ease((t-2900)/1600):0;
+      const f=repFrame('squat',view,flex);last=e.update(f.pose,t,16/9,false,f.world).assessment;
+      if(['DESCENDING','HOLDING','ASCENDING'].includes(last.debug.state??''))moving=true;
+      if(t>2200&&t<4000)assert.ok(!['Stand tall','Hold still'].includes(alignmentText(last)),JSON.stringify(last.debug.squatCycle));
+    }
+    assert.ok(moving);assert.equal(last.reps,1,JSON.stringify(last.debug.squatCycle));
+  });
+  test(`squat ${view}: one unreliable world frame pauses output without erasing the descent`,()=>{
+    const e=new CoachEngine('squat',view);let last=e.interrupt(),paused=false;
+    for(let t=0;t<9000;t+=65) {
+      const flex=t<3000?0:t<4700?ease((t-3000)/1700):t<6400?1-ease((t-4700)/1700):0;
+      const f=repFrame('squat',view,flex);
+      if(t===4095)for(const i of [25,26])f.world[i].visibility=.1;
+      last=e.update(f.pose,t,16/9,false,f.world).assessment;
+      if(t===4095){paused=true;assert.equal(last.score,null);assert.equal(last.corrections?.length??0,0);}
+      if(t>4200&&t<6000)assert.ok(last.debug.squatCycle?.calibrated,JSON.stringify(last.debug.squatCycle));
+    }
+    assert.ok(paused);assert.equal(last.reps,1,JSON.stringify(last.debug.squatCycle));
+  });
+  test(`squat ${view}: moving deeper from a bottom pause keeps the same squat cycle`,()=>{
+    const e=new CoachEngine('squat',view);let last=e.interrupt(),held=false;
+    for(let t=0;t<11200;t+=65) {
+      const flex=t<3000?0:t<4500?.75*ease((t-3000)/1500):t<6500?.75:t<7200?.75+.25*ease((t-6500)/700):t<8200?1:t<10000?1-ease((t-8200)/1800):0;
+      const f=repFrame('squat',view,flex);last=e.update(f.pose,t,16/9,false,f.world).assessment;
+      held ||= last.debug.state==='HOLDING';
+      if(t>4500&&t<9900)assert.ok(last.debug.squatCycle?.calibrated,JSON.stringify(last.debug.squatCycle));
+    }
+    assert.ok(held);assert.equal(last.reps,1,JSON.stringify(last.debug.squatCycle));
+  });
+}
+
+test('front squat counts moderate continuous reversals without requiring a deep bottom or a hold',()=>{
+  for(const standingMs of [1200,4000]) {
+  const e=new CoachEngine('squat','front');let last=e.interrupt(),scored=false;
+  for(let t=0;t<standingMs+9200;t+=65) {
+    const flex=t<standingMs||t>=standingMs+8400?0:.36*(1-Math.cos((t-standingMs)%2800/2800*Math.PI*2))/2;
+    const f=repFrame('squat','front',flex);last=e.update(f.pose,t,16/9,false,f.world).assessment;
+    scored ||= last.score!==null;
+    if(t>standingMs+1100&&t<standingMs+8300)assert.ok(last.debug.squatCycle?.calibrated);
+  }
+  assert.ok(scored);assert.equal(last.reps,3,JSON.stringify(last.debug.squatCycle));
+  }
+});
+
+test('front squat still rejects static crouches and tiny pulses',()=>{
+  for(const kind of ['static','tiny'] as const) {
+    const e=new CoachEngine('squat','front');let last=e.interrupt();
+    for(let t=0;t<9000;t+=65) {
+      const flex=kind==='static'?.6:t<1200?0:.12*(1-Math.cos((t-1200)/1200*Math.PI*2))/2;
+      const f=repFrame('squat','front',flex);last=e.update(f.pose,t,16/9,false,f.world).assessment;
+      assert.equal(last.score,null);
+    }
+    assert.equal(last.reps,0,kind);
+  }
+});
+
+test('side squat ignores optional toe landmark drift when the ankles remain planted',()=>{
+  const e=new CoachEngine('squat');let last=e.interrupt();
+  for(let t=0;t<11000;t+=65) {
+    const p=squatPose(movement(t));
+    if(t>3300&&t<9000)for(const i of [29,30,31,32])p[i].x+=.16;
+    last=e.update(p,t).assessment;
+  }
+  assert.equal(last.reps,1,JSON.stringify(last.debug.squatCycle));
+});
+
+test('a calibrated side squat keeps tracking when the far side is hidden during the descent',()=>{
+  const e=new CoachEngine('squat');let last=e.interrupt(),scored=false;
+  for(let t=0;t<9000;t+=65) {
+    const flex=t<1800?0:t<3600?ease((t-1800)/1800):t<5400?1-ease((t-3600)/1800):0;
+    const f=repFrame('squat','side',flex);
+    if(t>1900)for(const i of [12,24,26,28]){f.pose[i].visibility=.1;f.world[i].visibility=.1;}
+    last=e.update(f.pose,t,16/9,false,f.world).assessment;
+    if(t>2200&&t<5600){assert.ok(last.debug.squatCycle?.calibrated);assert.ok(!['Stand tall','Hold still'].includes(alignmentText(last)));}
+    scored ||= last.score!==null;
+  }
+  assert.ok(scored);assert.equal(last.reps,1);
+});
+
+for(const view of ['side','front'] as const)test(`sustained world tracking loss still rejects an unfinished ${view} squat`,()=>{
+  const e=new CoachEngine('squat',view);let last=e.interrupt(),rejected=false;
+  for(let t=0;t<9000;t+=65) {
+    const flex=t<3000?0:t<4700?ease((t-3000)/1700):t<6400?1-ease((t-4700)/1700):0;
+    const f=repFrame('squat',view,flex),missing=t>=4095&&t<4550;
+    if(missing)for(const i of [25,26])f.world[i].visibility=.1;
+    last=e.update(f.pose,t,16/9,false,f.world).assessment;
+    if(missing)assert.equal(last.score,null);
+    rejected ||= last.debug.repRejection?.category==='missing_tracking';
+  }
+  assert.ok(rejected);assert.equal(last.reps,0);
+});
+
+for(const view of ['side','front'] as const)test(`early ${view}-squat descent asks for continued lowering rather than returning to standing`,()=>{
+  const e=new CoachEngine('squat',view);let guided=false;
+  for(let t=0;t<2700;t+=65) {
+    const flex=t<900?0:Math.min(.4,(t-900)/3200),f=repFrame('squat',view,flex);
+    const a=e.update(f.pose,t,16/9,false,f.world).assessment;
+    if(a.score===null&&alignmentText(a)==='Lowering') {
+      guided=true;assert.equal(coachingText(a,'squat',view).prompt,'Keep lowering with control');
+      assert.ok(a.debug.squatCycle?.calibrated);assert.equal(a.reps,0);
+    }
+  }
+  assert.ok(guided);
+});
+
+for(const view of ['side','front'] as const)test(`squat ${view}: continuous squats with brief standing reversals count each cycle`,()=>{
+  const e=new CoachEngine('squat',view);let last=e.interrupt();
+  for(let t=0;t<11700;t+=65) {
+    const flex=t<3000||t>=10800?0:.85*(1-Math.cos((t-3000)%2600/2600*Math.PI*2))/2;
+    const image=squatPose(flex),world=worldPose(image);
+    if(view==='front')for(const s of [0,1])for(const [i,width] of [[11,.12],[23,.07],[25,.09],[27,.12]]) {
+      world[i+s].z=world[i+s].x;world[i+s].x=(s===0?-1:1)*width*2;
+      image[i+s].x=.5+(s===0?-1:1)*width;
+    }
+    last=e.update(image,t,1,false,world).assessment;
+  }
+  assert.equal(last.reps,3,JSON.stringify(last.debug.squatCycle));
+});
+
+test('side squat can leave a confirmed hold with a controlled rise without losing the cycle',()=>{
+  const e=new CoachEngine('squat');let last=e.interrupt();
+  for(let t=0;t<9500;t+=65) {
+    const flex=t<7800?movement(t):Math.max(0,1-(t-7800)/800);
+    last=e.update(squatPose(flex),t).assessment;
+  }
+  assert.equal(last.reps,1,JSON.stringify(last.debug.squatCycle));
+});
+
 for (const world of [false, true]) test(`calibrate, descend, hold, and rise using ${world ? 'world' : 'normalized'} geometry`, () => {
   const engine = new CoachEngine('squat'); const states = new Set<string>(); let scored = 0;
   for (let ms = 0; ms < 10400; ms += 65) {
@@ -42,7 +176,7 @@ for (const world of [false, true]) test(`calibrate, descend, hold, and rise usin
       assert.ok(a.score >= 0 && a.score <= 100); assert.equal(a.squatVisual?.reference.length, 0);
       assert.ok(d.baseline); assert.ok(d.baseline.leg > 0); assert.ok(d.baseline.confidence >= 0.45);
     } else assert.equal(a.corrections?.length ?? 0, 0);
-    if (ms < 2000) assert.equal(d.baselineDetected, false);
+    if (ms < EXERCISES.squat.baselineHoldMs) assert.equal(d.baselineDetected, false);
     if (ms > 10100) assert.equal(a.score, null);
   }
   assert.ok(scored > 20);
@@ -117,7 +251,7 @@ test('seated, static crouched, dancing, waving, and knee-only motion never produ
         }
       }
       const a = engine.update(p, ms).assessment;
-      assert.notEqual(a.debug.squat?.state, 'HOLDING', kind); assert.equal(a.score, null, kind);
+      assert.notEqual(a.debug.squat?.state, 'HOLDING', kind); assert.equal(a.score, null, kind);assert.equal(a.reps,0,kind);
       assert.equal(a.corrections?.length ?? 0, 0); assert.deepEqual(a.squatVisual?.recovery, []);
     }
   }
@@ -362,7 +496,7 @@ test('squat live scoring follows recognized phases and poor form lowers alignmen
       if(ms>2100&&ms<2500){assert.equal(alignmentText(last),'Ready');ready=true;}
       if(last.score!==null)phases.add(last.debug.state!);
       low ||= last.score!==null&&last.score<80;
-      if(mode==='interrupted'&&ms>3700&&ms<3900)assert.equal(alignmentText(last),'\u2014');
+      if(mode==='interrupted'&&ms>3700&&ms<3900)assert.equal(alignmentText(last),'Tracking unclear');
     }
     assert.ok(ready);
     if(mode==='good'){for(const state of ['DESCENDING','HOLDING','ASCENDING'])assert.ok(phases.has(state));}
@@ -378,8 +512,8 @@ test('display preserves low measured values including zero and score windows are
     assert.equal(window.update(100-score,100,200),measured);
     assert.equal(window.update(null,110,200),null);
   }
-  assert.equal(alignmentText({...base,scoreStatus:'ready'}),'Ready');
-  assert.equal(alignmentText(base),'\u2014');
+  assert.equal(alignmentText({...base,ready:true,scoreStatus:'ready'}),'Ready');
+  assert.equal(alignmentText(base),'Tracking unclear');
   assert.equal(holdTime(61234),'1:01');
 });
 
@@ -446,4 +580,19 @@ test('side squat scores with optional heels and toes hidden while required joint
     last=e.update(p,t).assessment;scored ||= last.score!==null;assert.ok(!last.corrections?.some(c=>c.id==='heel-lift'));
   }
   assert.ok(scored);assert.equal(last.scoreStatus,'ready');assert.equal(e.interrupt().score,null);
+});
+
+test('side squats count poor form and shallow but recognizable reversals without a quality gate',()=>{
+  for(const kind of ['lean','shallow','continuous'] as const) {
+    const e=new CoachEngine('squat');let last=e.interrupt(),low=false,guided=false;
+    for(let t=0;t<10600;t+=65) {
+      const flex=kind==='continuous'?(t<2600?0:t<4200?ease((t-2600)/1600)*.65:t<5800?(1-ease((t-4200)/1600))*.65:0):movement(t,kind==='shallow'?.60:1);
+      const p=squatPose(flex,kind==='lean'&&t>3000&&t<9300?75:2+20*flex);
+      last=e.update(p,t).assessment;
+      low ||= last.score!==null&&last.score<85;
+      guided ||= !!last.corrections?.some(c=>c.id===(kind==='lean'?'torso':'depth'));
+    }
+    assert.equal(last.reps,1,kind);assert.equal(last.debug.repRejection,null);
+    if(kind!=='continuous'){assert.ok(low,kind);assert.ok(guided,kind);}
+  }
 });
